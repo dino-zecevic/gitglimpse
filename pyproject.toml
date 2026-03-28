@@ -20,13 +20,14 @@ dependencies = [
     "typer[all]>=0.9.0",
     "rich>=13.0",
     "platformdirs>=4.0",
+    "tomli_w>=1.2",
 ]
 
 [project.optional-dependencies]
 llm = ["httpx>=0.27"]
 
 [project.scripts]
-gg = "gitglimpse.cli:app"
+glimpse = "gitglimpse.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gitglimpse"]
