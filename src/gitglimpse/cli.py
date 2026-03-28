@@ -9,6 +9,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from gitglimpse import __version__
 from gitglimpse.config import Config, load_config, save_config
 from gitglimpse.formatters.json import format_standup_json, format_week_json
 from gitglimpse.formatters.markdown import format_report
@@ -25,6 +26,27 @@ app = typer.Typer(
 )
 config_app = typer.Typer(help="View or edit gitglimpse configuration.")
 app.add_typer(config_app, name="config")
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"gitglimpse {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _app_callback(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Analyze git history and generate standup updates, reports, and summaries."""
 
 console = Console()
 
@@ -163,7 +185,14 @@ def standup(
         typer.Option("--analyze-diffs/--no-analyze-diffs", help="Include diff snippets for vague commit messages (LLM mode only)."),
     ] = True,
 ) -> None:
-    """Generate a standup update from recent git commits."""
+    """Generate a standup update from recent git commits.
+
+    \b
+    Examples:
+      glimpse standup
+      glimpse standup --since "2 days ago"
+      glimpse standup --json
+    """
     cfg = load_config()
     repo_path = Path(repo) if repo else None
     effective = _effective_since(since, cfg.default_since)
@@ -231,7 +260,14 @@ def report(
         typer.Option("--analyze-diffs/--no-analyze-diffs", help="Include diff snippets for vague commit messages (LLM mode only)."),
     ] = True,
 ) -> None:
-    """Generate a daily Markdown report from git commits."""
+    """Generate a daily Markdown report from git commits.
+
+    \b
+    Examples:
+      glimpse report
+      glimpse report -o daily.md
+      glimpse report --since 2025-03-01
+    """
     cfg = load_config()
     repo_path = Path(repo) if repo else None
     effective = _effective_since(since, cfg.default_since)
@@ -301,7 +337,14 @@ def week(
         typer.Option("--analyze-diffs/--no-analyze-diffs", help="Include diff snippets for vague commit messages (LLM mode only)."),
     ] = True,
 ) -> None:
-    """Generate a weekly summary from git commits."""
+    """Generate a weekly summary from git commits.
+
+    \b
+    Examples:
+      glimpse week
+      glimpse week --since "14 days ago" --until "7 days ago"
+      glimpse week --json
+    """
     cfg = load_config()
     repo_path = Path(repo) if repo else None
 
@@ -521,7 +564,14 @@ def init(
         typer.Option("--repo", help="Target repository root. Defaults to current directory."),
     ] = None,
 ) -> None:
-    """Initialize Claude Code (and optionally Cursor) slash-command files."""
+    """Initialize Claude Code (and optionally Cursor) slash-command files.
+
+    \b
+    Examples:
+      glimpse init
+      glimpse init --cursor
+      glimpse init --force
+    """
     root = Path(repo) if repo else Path.cwd()
 
     targets: list[tuple[Path, str]] = [

@@ -23,6 +23,11 @@ dependencies = [
     "tomli_w>=1.2",
 ]
 
+[project.urls]
+Homepage = "https://github.com/dino/gitglimpse"
+Repository = "https://github.com/dino/gitglimpse"
+"Bug Tracker" = "https://github.com/dino/gitglimpse/issues"
+
 [project.optional-dependencies]
 llm = ["httpx>=0.27"]
 
