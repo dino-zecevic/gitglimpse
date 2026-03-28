@@ -31,3 +31,9 @@ glimpse = "gitglimpse.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gitglimpse"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+# Ensures .md templates are included in the wheel alongside Python files.
+
+[tool.hatch.build.targets.sdist]
+include = ["src/gitglimpse/commands/*.md"]

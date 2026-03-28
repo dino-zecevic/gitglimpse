@@ -1,6 +1,7 @@
 """gitglimpse CLI — entry point for the `glimpse` command."""
 
 from datetime import date, timedelta
+from importlib.resources import files as _resource_files
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -442,10 +443,92 @@ def config_setup() -> None:
 
 
 # ---------------------------------------------------------------------------
-# init (stub)
+# init
 # ---------------------------------------------------------------------------
 
+_COMMAND_TEMPLATES = ("standup.md", "report.md", "week.md")
+
+
+def _read_template(name: str) -> str:
+    return (
+        _resource_files("gitglimpse.commands")
+        .joinpath(name)
+        .read_text(encoding="utf-8")
+    )
+
+
+def _write_command_file(
+    dest: Path,
+    content: str,
+    force: bool,
+    dry_run: bool,
+) -> bool:
+    """Write *dest* with *content*. Return True if the file was written."""
+    if dest.exists() and not force:
+        overwrite = typer.confirm(f"  {dest} already exists. Overwrite?", default=False)
+        if not overwrite:
+            console.print(f"  [dim]Skipped {dest}[/dim]")
+            return False
+    if not dry_run:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content, encoding="utf-8")
+    return True
+
+
 @app.command()
-def init() -> None:
-    """Initialize gitglimpse for the current repository."""
-    console.print("init coming soon")
+def init(
+    cursor: Annotated[
+        bool,
+        typer.Option("--cursor", help="Also create .cursor/commands/ files."),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Overwrite existing files without prompting."),
+    ] = False,
+    repo: Annotated[
+        Optional[str],
+        typer.Option("--repo", help="Target repository root. Defaults to current directory."),
+    ] = None,
+) -> None:
+    """Initialize Claude Code (and optionally Cursor) slash-command files."""
+    root = Path(repo) if repo else Path.cwd()
+
+    targets: list[tuple[Path, str]] = [
+        (root / ".claude" / "commands", "Claude Code"),
+    ]
+    if cursor:
+        targets.append((root / ".cursor" / "commands", "Cursor"))
+
+    created: list[Path] = []
+    skipped: list[Path] = []
+
+    for commands_dir, tool_name in targets:
+        console.print(f"\n[bold]{tool_name}[/bold] → {commands_dir}")
+        for name in _COMMAND_TEMPLATES:
+            dest = commands_dir / name
+            try:
+                content = _read_template(name)
+            except Exception as exc:
+                console.print(f"  [red]Could not read template {name}: {exc}[/red]")
+                continue
+            written = _write_command_file(dest, content, force=force, dry_run=False)
+            if written:
+                console.print(f"  [green]✓[/green] Created {dest.relative_to(root)}")
+                created.append(dest)
+            else:
+                skipped.append(dest)
+
+    console.print()
+    if created:
+        console.print(
+            f"[bold green]Done.[/bold green] "
+            f"Created {len(created)} file{'s' if len(created) != 1 else ''}."
+        )
+        console.print(
+            "\n[dim]Tip: commit these files so your whole team gets the commands:[/dim]"
+        )
+        rel_paths = " ".join(str(p.relative_to(root)) for p in created)
+        console.print(f"  git add {rel_paths}")
+        console.print("  git commit -m 'chore: add glimpse slash commands'")
+    else:
+        console.print("[yellow]No files were created.[/yellow]")
