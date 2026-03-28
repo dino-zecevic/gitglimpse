@@ -56,22 +56,36 @@ class ClaudeProvider(BaseLLMProvider):
             _warn.print(f"[yellow]⚠ Claude: unexpected error — {exc}.[/yellow]")
         return None
 
-    def summarize_standup(self, tasks: list[Task], report_date: date) -> str | None:
-        context = self._format_tasks_context(tasks, report_date)
+    def summarize_standup(
+        self,
+        tasks: list[Task],
+        report_date: date,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str | None:
+        context = self._format_tasks_context(tasks, report_date, diff_snippets)
         return self._chat(
             f"Generate a standup update from the following commit data:\n\n{context}"
         )
 
-    def summarize_report(self, tasks: list[Task], report_date: date) -> str | None:
-        context = self._format_tasks_context(tasks, report_date)
+    def summarize_report(
+        self,
+        tasks: list[Task],
+        report_date: date,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str | None:
+        context = self._format_tasks_context(tasks, report_date, diff_snippets)
         return self._chat(
             f"Generate a daily Markdown report from the following commit data:\n\n{context}"
         )
 
     def summarize_week(
-        self, tasks: list[Task], start_date: date, end_date: date
+        self,
+        tasks: list[Task],
+        start_date: date,
+        end_date: date,
+        diff_snippets: dict[str, str] | None = None,
     ) -> str | None:
-        context = self._format_week_context(tasks, start_date, end_date)
+        context = self._format_week_context(tasks, start_date, end_date, diff_snippets)
         return self._chat(
             "Generate a weekly summary with key themes and highlights "
             f"from the following commit data:\n\n{context}"

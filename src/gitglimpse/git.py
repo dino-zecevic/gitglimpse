@@ -226,6 +226,31 @@ def get_commits(
     return commits
 
 
+def get_commit_diff(
+    repo_path: Path | None,
+    commit_hash: str,
+    max_lines: int = 50,
+) -> str:
+    """Return a truncated unified diff for the given commit.
+
+    Strips the commit header block (everything before the first ``diff --git``
+    line) and caps output at *max_lines* diff lines to keep prompts compact.
+    """
+    git = _git_bin()
+    cwd = Path(repo_path) if repo_path is not None else Path.cwd()
+    raw = _run([git, "show", "--patch", "-U2", commit_hash], cwd=cwd)
+    lines = raw.splitlines()
+    # Skip the commit header; start from the first diff hunk.
+    diff_start = next(
+        (i for i, ln in enumerate(lines) if ln.startswith("diff --git")), 0
+    )
+    diff_lines = lines[diff_start:]
+    if len(diff_lines) <= max_lines:
+        return "\n".join(diff_lines)
+    truncated = len(diff_lines) - max_lines
+    return "\n".join(diff_lines[:max_lines]) + f"\n... ({truncated} more lines)"
+
+
 def get_current_author_email(repo_path: Path | None = None) -> str:
     """Return the configured git user.email for the repo.
 

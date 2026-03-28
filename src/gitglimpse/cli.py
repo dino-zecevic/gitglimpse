@@ -13,8 +13,8 @@ from gitglimpse.config import Config, load_config, save_config
 from gitglimpse.formatters.json import format_standup_json, format_week_json
 from gitglimpse.formatters.markdown import format_report
 from gitglimpse.formatters.template import format_standup, format_week_template
-from gitglimpse.git import GitError, get_commits, get_current_author_email
-from gitglimpse.grouping import group_commits_into_tasks
+from gitglimpse.git import GitError, get_commit_diff, get_commits, get_current_author_email
+from gitglimpse.grouping import group_commits_into_tasks, is_vague_message
 from gitglimpse.providers import get_provider
 from gitglimpse.providers.local import LocalProvider
 
@@ -98,6 +98,22 @@ def _mask_key(key: str) -> str:
     return f"****{key[-4:]}"
 
 
+def _collect_diff_snippets(
+    tasks: list,
+    repo_path: Optional[Path],
+) -> dict[str, str]:
+    """Return a mapping of commit_hash → diff snippet for commits with vague messages."""
+    snippets: dict[str, str] = {}
+    for task in tasks:
+        for commit in task.commits:
+            if commit.hash not in snippets and is_vague_message(commit.message):
+                try:
+                    snippets[commit.hash] = get_commit_diff(repo_path, commit.hash)
+                except GitError:
+                    pass  # skip if diff can't be retrieved
+    return snippets
+
+
 def _resolve_provider(
     cfg: Config,
     use_local: bool,
@@ -142,6 +158,10 @@ def standup(
         Optional[str],
         typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
     ] = None,
+    analyze_diffs: Annotated[
+        bool,
+        typer.Option("--analyze-diffs/--no-analyze-diffs", help="Include diff snippets for vague commit messages (LLM mode only)."),
+    ] = True,
 ) -> None:
     """Generate a standup update from recent git commits."""
     cfg = load_config()
@@ -171,7 +191,8 @@ def standup(
                     "[yellow]⚠ Local LLM not reachable — falling back to template.[/yellow]"
                 )
             else:
-                llm_output = provider.summarize_standup(tasks, report_date)
+                diff_snippets = _collect_diff_snippets(tasks, repo_path) if analyze_diffs else None
+                llm_output = provider.summarize_standup(tasks, report_date, diff_snippets)
 
     console.print(
         llm_output if llm_output else format_standup(tasks, report_date),
@@ -205,6 +226,10 @@ def report(
         Optional[str],
         typer.Option("--output", "-o", help="Save report to this file instead of printing."),
     ] = None,
+    analyze_diffs: Annotated[
+        bool,
+        typer.Option("--analyze-diffs/--no-analyze-diffs", help="Include diff snippets for vague commit messages (LLM mode only)."),
+    ] = True,
 ) -> None:
     """Generate a daily Markdown report from git commits."""
     cfg = load_config()
@@ -230,7 +255,8 @@ def report(
                     "[yellow]⚠ Local LLM not reachable — falling back to Markdown formatter.[/yellow]"
                 )
             else:
-                llm_output = provider.summarize_report(tasks, report_date)
+                diff_snippets = _collect_diff_snippets(tasks, repo_path) if analyze_diffs else None
+                llm_output = provider.summarize_report(tasks, report_date, diff_snippets)
 
     md = llm_output if llm_output else format_report(tasks, report_date)
 
@@ -270,6 +296,10 @@ def week(
         Optional[str],
         typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
     ] = None,
+    analyze_diffs: Annotated[
+        bool,
+        typer.Option("--analyze-diffs/--no-analyze-diffs", help="Include diff snippets for vague commit messages (LLM mode only)."),
+    ] = True,
 ) -> None:
     """Generate a weekly summary from git commits."""
     cfg = load_config()
@@ -304,7 +334,8 @@ def week(
                     "[yellow]⚠ Local LLM not reachable — falling back to template.[/yellow]"
                 )
             else:
-                llm_output = provider.summarize_week(tasks, start_date, end_date)
+                diff_snippets = _collect_diff_snippets(tasks, repo_path) if analyze_diffs else None
+                llm_output = provider.summarize_week(tasks, start_date, end_date, diff_snippets)
 
     console.print(
         llm_output if llm_output else format_week_template(tasks, start_date, end_date),

@@ -45,6 +45,36 @@ def _is_vague(message: str) -> bool:
     return False
 
 
+def is_vague_message(message: str) -> bool:
+    """Public wrapper around ``_is_vague`` for use outside this module."""
+    return _is_vague(message)
+
+
+_SEMANTIC_RULES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:^|/)tests?/|test_[^/]+\.py$|_test\.py$", re.IGNORECASE), "Added tests"),
+    (re.compile(r"(?:^|/)migrations?/|\.sql$", re.IGNORECASE), "Database migration"),
+    (
+        re.compile(
+            r"(?:^|/)(?:config|settings|\.env)[^/]*$"
+            r"|\.(?:toml|ya?ml|ini|cfg|env)$",
+            re.IGNORECASE,
+        ),
+        "Configuration changes",
+    ),
+    (re.compile(r"(?:^|/)docs?/|\.md$", re.IGNORECASE), "Documentation updates"),
+]
+
+
+def _semantic_label(paths: list[str]) -> str | None:
+    """Return a semantic label if the majority of paths match a known pattern."""
+    if not paths:
+        return None
+    for pattern, label in _SEMANTIC_RULES:
+        if sum(1 for p in paths if pattern.search(p)) > len(paths) / 2:
+            return label
+    return None
+
+
 def _best_summary(commits: list[Commit]) -> str:
     """Return the most meaningful summary for a group of commits."""
     non_vague = [
@@ -69,6 +99,11 @@ def _best_summary(commits: list[Commit]) -> str:
             dirs.append(parts[0])
         else:
             bare_files.append(p)
+
+    # Attempt a semantic label from well-known path patterns.
+    label = _semantic_label(all_paths)
+    if label:
+        return label
 
     mentioned: list[str] = []
     if dirs:

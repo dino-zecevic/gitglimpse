@@ -20,16 +20,30 @@ class BaseLLMProvider(ABC):
     """Common interface all LLM providers must implement."""
 
     @abstractmethod
-    def summarize_standup(self, tasks: list[Task], report_date: date) -> str | None:
+    def summarize_standup(
+        self,
+        tasks: list[Task],
+        report_date: date,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str | None:
         """Return a formatted standup string, or None on failure."""
 
     @abstractmethod
-    def summarize_report(self, tasks: list[Task], report_date: date) -> str | None:
+    def summarize_report(
+        self,
+        tasks: list[Task],
+        report_date: date,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str | None:
         """Return a formatted daily report string, or None on failure."""
 
     @abstractmethod
     def summarize_week(
-        self, tasks: list[Task], start_date: date, end_date: date
+        self,
+        tasks: list[Task],
+        start_date: date,
+        end_date: date,
+        diff_snippets: dict[str, str] | None = None,
     ) -> str | None:
         """Return a formatted weekly summary with key themes, or None on failure."""
 
@@ -67,8 +81,14 @@ class BaseLLMProvider(ABC):
         )
 
     @staticmethod
-    def _format_tasks_context(tasks: list[Task], report_date: date) -> str:
+    def _format_tasks_context(
+        tasks: list[Task],
+        report_date: date,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str:
         """Serialise tasks into a human-readable block for the user message."""
+        from gitglimpse.grouping import is_vague_message
+
         date_str = f"{report_date.strftime('%B')} {report_date.day}, {report_date.year}"
         lines = [f"Date: {date_str}", f"Tasks: {len(tasks)}", ""]
 
@@ -84,15 +104,26 @@ class BaseLLMProvider(ABC):
                 lines.append("  Commit messages:")
                 for msg in messages:
                     lines.append(f"    - {msg}")
+            if diff_snippets:
+                for commit in task.commits:
+                    if commit.hash in diff_snippets and is_vague_message(commit.message):
+                        lines.append(f"  Diff for '{commit.message}':")
+                        for dl in diff_snippets[commit.hash].splitlines():
+                            lines.append(f"    {dl}")
             lines.append("")
 
         return "\n".join(lines)
 
     @staticmethod
     def _format_week_context(
-        tasks: list[Task], start_date: date, end_date: date
+        tasks: list[Task],
+        start_date: date,
+        end_date: date,
+        diff_snippets: dict[str, str] | None = None,
     ) -> str:
         """Serialise a week's worth of tasks grouped by day for the LLM prompt."""
+        from gitglimpse.grouping import is_vague_message
+
         start_str = f"{start_date.strftime('%B')} {start_date.day}, {start_date.year}"
         end_str = f"{end_date.strftime('%B')} {end_date.day}, {end_date.year}"
         lines = [
@@ -120,6 +151,12 @@ class BaseLLMProvider(ABC):
                 messages = [c.message for c in task.commits if not c.is_merge]
                 for msg in messages:
                     lines.append(f"    - {msg}")
+                if diff_snippets:
+                    for commit in task.commits:
+                        if commit.hash in diff_snippets and is_vague_message(commit.message):
+                            lines.append(f"  Diff for '{commit.message}':")
+                            for dl in diff_snippets[commit.hash].splitlines():
+                                lines.append(f"    {dl}")
             lines.append("")
 
         return "\n".join(lines)
