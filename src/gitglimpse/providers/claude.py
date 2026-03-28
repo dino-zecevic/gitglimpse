@@ -67,3 +67,12 @@ class ClaudeProvider(BaseLLMProvider):
         return self._chat(
             f"Generate a daily Markdown report from the following commit data:\n\n{context}"
         )
+
+    def summarize_week(
+        self, tasks: list[Task], start_date: date, end_date: date
+    ) -> str | None:
+        context = self._format_week_context(tasks, start_date, end_date)
+        return self._chat(
+            "Generate a weekly summary with key themes and highlights "
+            f"from the following commit data:\n\n{context}"
+        )

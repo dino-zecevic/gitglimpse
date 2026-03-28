@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,12 @@ class BaseLLMProvider(ABC):
     @abstractmethod
     def summarize_report(self, tasks: list[Task], report_date: date) -> str | None:
         """Return a formatted daily report string, or None on failure."""
+
+    @abstractmethod
+    def summarize_week(
+        self, tasks: list[Task], start_date: date, end_date: date
+    ) -> str | None:
+        """Return a formatted weekly summary with key themes, or None on failure."""
 
     # ------------------------------------------------------------------
     # Shared helpers
@@ -49,7 +56,14 @@ class BaseLLMProvider(ABC):
             "- One level-2 section per task group.\n"
             "- Under each section: files changed, +insertions/−deletions, and a "
             "plain-English description of what was accomplished.\n"
-            "- Professional but brief; avoid bullet overload."
+            "- Professional but brief; avoid bullet overload.\n\n"
+            "## Weekly summary format rules\n"
+            "- Plain text with a heading: Weekly Summary — <date range>\n"
+            "- Group by day of week with bullet tasks per day.\n"
+            "- Add a 'Key themes' section: 3–5 bullet points identifying the main "
+            "areas of work across the whole week.\n"
+            "- Add a 'Highlights' section: 1–3 notable accomplishments.\n"
+            "- End with a week total line."
         )
 
     @staticmethod
@@ -68,6 +82,42 @@ class BaseLLMProvider(ABC):
             messages = [c.message for c in task.commits if not c.is_merge]
             if messages:
                 lines.append("  Commit messages:")
+                for msg in messages:
+                    lines.append(f"    - {msg}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_week_context(
+        tasks: list[Task], start_date: date, end_date: date
+    ) -> str:
+        """Serialise a week's worth of tasks grouped by day for the LLM prompt."""
+        start_str = f"{start_date.strftime('%B')} {start_date.day}, {start_date.year}"
+        end_str = f"{end_date.strftime('%B')} {end_date.day}, {end_date.year}"
+        lines = [
+            f"Period: {start_str} to {end_str}",
+            f"Total tasks: {len(tasks)}",
+            f"Total estimated time: {sum(t.estimated_minutes for t in tasks) / 60:.1f}h",
+            "",
+        ]
+
+        by_day: dict[date, list[Task]] = defaultdict(list)
+        for task in tasks:
+            by_day[task.first_commit_time.date()].append(task)
+
+        for day in sorted(by_day):
+            day_tasks = by_day[day]
+            lines.append(f"## {day.strftime('%A, %B')} {day.day}")
+            for i, task in enumerate(day_tasks, 1):
+                branch = task.branch or "(no branch)"
+                lines.append(f"Task {i}: {task.summary}")
+                lines.append(f"  Branch: {branch}")
+                lines.append(
+                    f"  +{task.insertions} insertions, \u2212{task.deletions} deletions"
+                )
+                lines.append(f"  Estimated: {task.estimated_minutes} minutes")
+                messages = [c.message for c in task.commits if not c.is_merge]
                 for msg in messages:
                     lines.append(f"    - {msg}")
             lines.append("")

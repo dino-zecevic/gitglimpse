@@ -9,9 +9,9 @@ from rich.console import Console
 from rich.table import Table
 
 from gitglimpse.config import Config, load_config, save_config
-from gitglimpse.formatters.json import format_standup_json
+from gitglimpse.formatters.json import format_standup_json, format_week_json
 from gitglimpse.formatters.markdown import format_report
-from gitglimpse.formatters.template import format_standup
+from gitglimpse.formatters.template import format_standup, format_week_template
 from gitglimpse.git import GitError, get_commits, get_current_author_email
 from gitglimpse.grouping import group_commits_into_tasks
 from gitglimpse.providers import get_provider
@@ -32,6 +32,7 @@ console = Console()
 # ---------------------------------------------------------------------------
 
 _DEFAULT_SINCE = "yesterday"
+_DEFAULT_WEEK_SINCE = "7 days ago"
 
 _API_KEY_PREFIXES: dict[str, str] = {
     "openai": "sk-",
@@ -66,6 +67,28 @@ def _resolve_author(
 def _effective_since(cli_since: str, cfg_since: str) -> str:
     """Use the config default only when the CLI flag is still at its default."""
     return cfg_since if cli_since == _DEFAULT_SINCE else cli_since
+
+
+def _parse_date_bound(value: str | None, default_days_ago: int) -> date:
+    """Parse a date from a CLI string, with a fallback of N days ago."""
+    today = date.today()
+    if value is None:
+        return today - timedelta(days=default_days_ago)
+    # Try ISO format first.
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        pass
+    # Handle "N days ago" patterns that git also accepts.
+    if value.endswith(" days ago"):
+        try:
+            n = int(value.split()[0])
+            return today - timedelta(days=n)
+        except (ValueError, IndexError):
+            pass
+    if value.lower() == "yesterday":
+        return today - timedelta(days=1)
+    return today - timedelta(days=default_days_ago)
 
 
 def _mask_key(key: str) -> str:
@@ -224,15 +247,69 @@ def report(
 @app.command()
 def week(
     as_json: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
-    no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM summarization.")] = False,
+    no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use template formatter.")] = False,
     local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
     local_llm_url: Annotated[
         Optional[str],
         typer.Option("--local-llm-url", help="Override local LLM base URL."),
     ] = None,
+    since: Annotated[
+        str,
+        typer.Option("--since", help="Start of week range (default: 7 days ago)."),
+    ] = _DEFAULT_WEEK_SINCE,
+    until: Annotated[
+        Optional[str],
+        typer.Option("--until", help="End of week range (default: today)."),
+    ] = None,
+    author: Annotated[
+        Optional[str],
+        typer.Option("--author", help="Filter by author email. Defaults to saved config or git user."),
+    ] = None,
+    repo: Annotated[
+        Optional[str],
+        typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
+    ] = None,
 ) -> None:
     """Generate a weekly summary from git commits."""
-    console.print("week coming soon")
+    cfg = load_config()
+    repo_path = Path(repo) if repo else None
+
+    try:
+        resolved_author = _resolve_author(author, cfg.author_email, repo_path)
+        commits = get_commits(
+            repo_path=repo_path,
+            since=since,
+            until=until,
+            author=resolved_author,
+        )
+    except GitError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(1)
+
+    tasks = group_commits_into_tasks(commits)
+    start_date = _parse_date_bound(since, 7)
+    end_date = _parse_date_bound(until, 0)  # 0 days ago = today
+
+    if as_json:
+        print(format_week_json(tasks, start_date, end_date))
+        return
+
+    llm_output: str | None = None
+    if not no_llm:
+        provider = _resolve_provider(cfg, local_llm, local_llm_url)
+        if provider is not None:
+            if isinstance(provider, LocalProvider) and not provider.is_available():
+                console.print(
+                    "[yellow]⚠ Local LLM not reachable — falling back to template.[/yellow]"
+                )
+            else:
+                llm_output = provider.summarize_week(tasks, start_date, end_date)
+
+    console.print(
+        llm_output if llm_output else format_week_template(tasks, start_date, end_date),
+        markup=False,
+        highlight=False,
+    )
 
 
 # ---------------------------------------------------------------------------
