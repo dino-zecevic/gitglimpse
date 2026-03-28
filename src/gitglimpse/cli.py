@@ -14,6 +14,8 @@ from gitglimpse.formatters.markdown import format_report
 from gitglimpse.formatters.template import format_standup
 from gitglimpse.git import GitError, get_commits, get_current_author_email
 from gitglimpse.grouping import group_commits_into_tasks
+from gitglimpse.providers import get_provider
+from gitglimpse.providers.local import LocalProvider
 
 app = typer.Typer(
     name="glimpse",
@@ -72,6 +74,28 @@ def _mask_key(key: str) -> str:
     return f"****{key[-4:]}"
 
 
+def _resolve_provider(
+    cfg: Config,
+    use_local: bool,
+    local_url_override: Optional[str],
+) -> object | None:
+    """Return the appropriate provider, or None for template-only output.
+
+    Priority:
+      1. --local-llm flag → LocalProvider (with optional URL override)
+      2. config default_mode == local-llm / api → get_provider()
+      3. anything else → None (template fallback)
+    """
+    if use_local:
+        url = local_url_override or cfg.local_llm_url
+        model = cfg.llm_model or "llama3.2"
+        return LocalProvider(base_url=url, model=model)
+    if cfg.default_mode in ("local-llm", "api"):
+        p = get_provider(cfg)
+        return p
+    return None
+
+
 # ---------------------------------------------------------------------------
 # standup
 # ---------------------------------------------------------------------------
@@ -79,10 +103,11 @@ def _mask_key(key: str) -> str:
 @app.command()
 def standup(
     as_json: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
-    no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM summarization (default).")] = False,
-    local_llm: Annotated[
+    no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use template formatter.")] = False,
+    local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
+    local_llm_url: Annotated[
         Optional[str],
-        typer.Option("--local-llm", help="Local LLM endpoint (e.g. http://localhost:11434)."),
+        typer.Option("--local-llm-url", help="Override local LLM base URL."),
     ] = None,
     since: Annotated[str, typer.Option("--since", help="Show commits since this date or period.")] = _DEFAULT_SINCE,
     author: Annotated[
@@ -111,8 +136,24 @@ def standup(
 
     if as_json:
         print(format_standup_json(tasks, report_date))
-    else:
-        console.print(format_standup(tasks, report_date), markup=False, highlight=False)
+        return
+
+    llm_output: str | None = None
+    if not no_llm:
+        provider = _resolve_provider(cfg, local_llm, local_llm_url)
+        if provider is not None:
+            if isinstance(provider, LocalProvider) and not provider.is_available():
+                console.print(
+                    "[yellow]⚠ Local LLM not reachable — falling back to template.[/yellow]"
+                )
+            else:
+                llm_output = provider.summarize_standup(tasks, report_date)
+
+    console.print(
+        llm_output if llm_output else format_standup(tasks, report_date),
+        markup=False,
+        highlight=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -121,10 +162,11 @@ def standup(
 
 @app.command()
 def report(
-    no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM summarization (default).")] = False,
-    local_llm: Annotated[
+    no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use Markdown formatter.")] = False,
+    local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
+    local_llm_url: Annotated[
         Optional[str],
-        typer.Option("--local-llm", help="Local LLM endpoint (e.g. http://localhost:11434)."),
+        typer.Option("--local-llm-url", help="Override local LLM base URL."),
     ] = None,
     since: Annotated[str, typer.Option("--since", help="Show commits since this date or period.")] = _DEFAULT_SINCE,
     author: Annotated[
@@ -154,7 +196,19 @@ def report(
 
     tasks = group_commits_into_tasks(commits)
     report_date = _report_date(effective)
-    md = format_report(tasks, report_date)
+
+    llm_output: str | None = None
+    if not no_llm:
+        provider = _resolve_provider(cfg, local_llm, local_llm_url)
+        if provider is not None:
+            if isinstance(provider, LocalProvider) and not provider.is_available():
+                console.print(
+                    "[yellow]⚠ Local LLM not reachable — falling back to Markdown formatter.[/yellow]"
+                )
+            else:
+                llm_output = provider.summarize_report(tasks, report_date)
+
+    md = llm_output if llm_output else format_report(tasks, report_date)
 
     if output:
         Path(output).write_text(md, encoding="utf-8")
@@ -171,9 +225,10 @@ def report(
 def week(
     as_json: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
     no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM summarization.")] = False,
-    local_llm: Annotated[
+    local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
+    local_llm_url: Annotated[
         Optional[str],
-        typer.Option("--local-llm", help="Local LLM endpoint (e.g. http://localhost:11434)."),
+        typer.Option("--local-llm-url", help="Override local LLM base URL."),
     ] = None,
 ) -> None:
     """Generate a weekly summary from git commits."""
