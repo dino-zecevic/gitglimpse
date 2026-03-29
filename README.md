@@ -29,7 +29,7 @@ gitglimpse reads your `git log`, groups commits into logical tasks, estimates ho
 ## Quick Start
 
 ```bash
-pip install git+https://github.com/dino-zecevic/gitglimpse.git
+pip install gitglimpse
 cd your-project
 glimpse standup
 ```
