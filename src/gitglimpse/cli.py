@@ -426,11 +426,13 @@ def standup(
                 llm_output = provider.summarize_standup(tasks, report_date, diff_snippets)
 
     _print_status_line(resolved_author, active_provider, ctx_mode)
-    console.print(
-        llm_output if llm_output else format_standup(tasks, report_date, group_by=group_by if multi else "project"),
-        markup=False,
-        highlight=False,
-    )
+    if llm_output:
+        console.print(llm_output, markup=False, highlight=False)
+    else:
+        console.print(
+            format_standup(tasks, report_date, group_by=group_by if multi else "project"),
+            highlight=False,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -630,11 +632,13 @@ def week(
                 llm_output = provider.summarize_week(tasks, start_date, end_date, diff_snippets)
 
     _print_status_line(resolved_author, active_provider, ctx_mode)
-    console.print(
-        llm_output if llm_output else format_week_template(tasks, start_date, end_date),
-        markup=False,
-        highlight=False,
-    )
+    if llm_output:
+        console.print(llm_output, markup=False, highlight=False)
+    else:
+        console.print(
+            format_week_template(tasks, start_date, end_date),
+            highlight=False,
+        )
 
 
 # ---------------------------------------------------------------------------
