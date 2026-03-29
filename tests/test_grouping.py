@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from gitglimpse.git import Commit, FileChange
-from gitglimpse.grouping import Task, _is_vague, group_commits_into_tasks
+from gitglimpse.grouping import Task, _is_vague, extract_ticket_id, filter_noise_commits, group_commits_into_tasks
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -250,3 +250,278 @@ class TestTaskTotals:
         commits = [_commit("feat: something")]
         tasks = group_commits_into_tasks(commits)
         assert tasks[0].estimated_minutes > 0
+
+
+# ---------------------------------------------------------------------------
+# filter_noise_commits
+# ---------------------------------------------------------------------------
+
+class TestFilterNoiseCommits:
+    def test_merge_commits_filtered(self) -> None:
+        commits = [
+            _commit("Merge branch 'feature' into main"),
+            _commit("Merge pull request #42 from user/feature"),
+            _commit("feat: real work"),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 1
+        assert result[0].message == "feat: real work"
+
+    def test_lock_file_only_commits_filtered(self) -> None:
+        commits = [
+            _commit(
+                "install deps",
+                files=[_fc("package-lock.json", 500, 200), _fc("yarn.lock", 100, 50)],
+            ),
+            _commit(
+                "update go deps",
+                files=[_fc("go.sum", 30, 10)],
+            ),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 0
+
+    def test_mixed_noise_and_real_files_not_filtered(self) -> None:
+        commits = [
+            _commit(
+                "add feature and update deps",
+                files=[
+                    _fc("package-lock.json", 500, 200),
+                    _fc("src/app.js", 20, 5),
+                ],
+            ),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 1
+
+    def test_lint_format_message_commits_filtered(self) -> None:
+        noise_messages = [
+            "lint fix",
+            "run formatter",
+            "auto-format",
+            "format code",
+            "apply formatting",
+            "prettier",
+            "eslint fix",
+            "lint",
+            "format",
+            "formatting",
+            "update lock file",
+            "update lockfile",
+            "regenerate lock",
+        ]
+        for msg in noise_messages:
+            commits = [_commit(msg)]
+            result = filter_noise_commits(commits)
+            assert len(result) == 0, f"Expected '{msg}' to be filtered"
+
+    def test_lint_format_case_insensitive(self) -> None:
+        commits = [
+            _commit("Lint Fix"),
+            _commit("RUN FORMATTER"),
+            _commit("Auto-Format"),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 0
+
+    def test_bump_commits_filtered(self) -> None:
+        commits = [
+            _commit("bump version to 1.2.3"),
+            _commit("Bump dependencies"),
+            _commit("bump"),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 0
+
+    def test_minified_and_map_files_filtered(self) -> None:
+        commits = [
+            _commit(
+                "build assets",
+                files=[_fc("dist/app.min.js"), _fc("dist/app.min.css"), _fc("dist/app.js.map")],
+            ),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 0
+
+    def test_ci_workflow_only_commits_filtered(self) -> None:
+        commits = [
+            _commit(
+                "update ci",
+                files=[_fc(".github/workflows/ci.yml"), _fc(".github/workflows/deploy.yaml")],
+            ),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 0
+
+    def test_pyc_and_cache_files_filtered(self) -> None:
+        commits = [
+            _commit(
+                "cache",
+                files=[_fc("src/__pycache__/mod.cpython-311.pyc"), _fc("lib/util.pyc")],
+            ),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 0
+
+    def test_config_lint_files_filtered(self) -> None:
+        commits = [
+            _commit(
+                "update config",
+                files=[_fc(".prettierrc"), _fc(".eslintrc.json"), _fc(".editorconfig")],
+            ),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 0
+
+    def test_no_filter_noise_keeps_everything(self) -> None:
+        """Simulates --no-filter-noise by simply not calling filter_noise_commits."""
+        commits = [
+            _commit("Merge branch 'feature' into main"),
+            _commit("lint fix"),
+            _commit("feat: real work"),
+            _commit(
+                "install deps",
+                files=[_fc("package-lock.json", 500, 200)],
+            ),
+        ]
+        # When --no-filter-noise is used, filter_noise_commits is not called.
+        # All commits remain.
+        assert len(commits) == 4
+
+    def test_real_commits_not_filtered(self) -> None:
+        commits = [
+            _commit("feat: add user authentication"),
+            _commit("fix: resolve login redirect bug"),
+            _commit("refactor: simplify middleware chain"),
+        ]
+        result = filter_noise_commits(commits)
+        assert len(result) == 3
+
+    def test_empty_input(self) -> None:
+        assert filter_noise_commits([]) == []
+
+    def test_commit_with_no_files_not_filtered(self) -> None:
+        """A commit with no files and a real message should be kept."""
+        commits = [_commit("feat: initial commit", files=[])]
+        result = filter_noise_commits(commits)
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# extract_ticket_id
+# ---------------------------------------------------------------------------
+
+class TestExtractTicketId:
+    @pytest.mark.parametrize("branch, expected", [
+        ("feature/PROJ-123-auth-flow", "PROJ-123"),
+        ("fix/BUG-42-login-crash", "BUG-42"),
+        ("feat/AUTH-4567-oauth", "AUTH-4567"),
+        ("TICKET-1-quick", "TICKET-1"),
+        ("feature/AB-99", "AB-99"),
+    ])
+    def test_jira_style(self, branch: str, expected: str) -> None:
+        assert extract_ticket_id(branch) == expected
+
+    @pytest.mark.parametrize("branch, expected", [
+        ("feat/gh-15-add-search", "#15"),
+        ("fix/gh-100-bug", "#100"),
+        ("feat/GH-7-feature", "#7"),
+    ])
+    def test_github_issue_gh_prefix(self, branch: str, expected: str) -> None:
+        assert extract_ticket_id(branch) == expected
+
+    @pytest.mark.parametrize("branch", [
+        "hotfix/quick-patch",
+        "main",
+        "develop",
+        "feat/add-new-feature",
+        "fix/resolve-crash",
+    ])
+    def test_no_ticket(self, branch: str) -> None:
+        assert extract_ticket_id(branch) is None
+
+    def test_github_takes_priority_over_jira(self) -> None:
+        # GitHub pattern is checked first so gh-N is normalised to #N.
+        assert extract_ticket_id("feature/PROJ-1-gh-2") == "#2"
+
+    def test_jira_wins_when_no_gh(self) -> None:
+        assert extract_ticket_id("feature/PROJ-1-something") == "PROJ-1"
+
+    def test_ticket_set_on_task_via_grouping(self) -> None:
+        commits = [
+            _commit("feat: auth flow", branches=["feature/PROJ-123-auth"]),
+        ]
+        tasks = group_commits_into_tasks(commits)
+        assert tasks[0].ticket == "PROJ-123"
+
+    def test_no_ticket_on_task_when_no_match(self) -> None:
+        commits = [
+            _commit("feat: something", branches=["main"]),
+        ]
+        tasks = group_commits_into_tasks(commits)
+        assert tasks[0].ticket is None
+
+
+# ---------------------------------------------------------------------------
+# Ticket in formatter output
+# ---------------------------------------------------------------------------
+
+class TestTicketInFormatters:
+    def test_ticket_in_template_output(self) -> None:
+        from gitglimpse.formatters.template import format_standup
+        commits = [
+            _commit("Implemented auth flow", branches=["feature/PROJ-123-auth"]),
+        ]
+        tasks = group_commits_into_tasks(commits)
+        output = format_standup(tasks, _BASE.date())
+        assert "PROJ-123" in output
+
+    def test_no_ticket_in_template_when_absent(self) -> None:
+        from gitglimpse.formatters.template import format_standup
+        commits = [
+            _commit("Implemented auth flow", branches=["feat/auth"]),
+        ]
+        tasks = group_commits_into_tasks(commits)
+        output = format_standup(tasks, _BASE.date())
+        # Should not contain a JIRA-style ticket — just verify no stray "None".
+        assert "None" not in output
+
+    def test_ticket_in_json_output(self) -> None:
+        import json
+        from gitglimpse.formatters.json import format_standup_json
+        commits = [
+            _commit("Implemented auth flow", branches=["feature/PROJ-123-auth"]),
+        ]
+        tasks = group_commits_into_tasks(commits)
+        data = json.loads(format_standup_json(tasks, _BASE.date()))
+        task_data = data["days"][0]["tasks"][0]
+        assert task_data["ticket"] == "PROJ-123"
+
+    def test_no_ticket_null_in_json(self) -> None:
+        import json
+        from gitglimpse.formatters.json import format_standup_json
+        commits = [
+            _commit("Implemented auth flow", branches=["main"]),
+        ]
+        tasks = group_commits_into_tasks(commits)
+        data = json.loads(format_standup_json(tasks, _BASE.date()))
+        task_data = data["days"][0]["tasks"][0]
+        assert task_data["ticket"] is None
+
+    def test_ticket_in_markdown_output(self) -> None:
+        from gitglimpse.formatters.markdown import format_report
+        commits = [
+            _commit("Implemented auth flow", branches=["feature/PROJ-123-auth"]),
+        ]
+        tasks = group_commits_into_tasks(commits)
+        output = format_report(tasks, _BASE.date())
+        assert "PROJ-123" in output
+
+    def test_no_ticket_in_markdown_when_absent(self) -> None:
+        from gitglimpse.formatters.markdown import format_report
+        commits = [
+            _commit("Implemented auth flow", branches=["feat/auth"]),
+        ]
+        tasks = group_commits_into_tasks(commits)
+        output = format_report(tasks, _BASE.date())
+        assert "None" not in output

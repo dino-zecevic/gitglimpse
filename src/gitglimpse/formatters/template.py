@@ -3,6 +3,8 @@
 from collections import defaultdict
 from datetime import date, timedelta
 
+from rich.markup import escape as _escape
+
 from gitglimpse.estimation import format_duration
 from gitglimpse.grouping import Task
 
@@ -19,24 +21,31 @@ def _day_label(day: date, today: date) -> str:
 
 def _render_task_bullet(task: Task, inline_project: bool = False) -> str:
     duration = format_duration(task.estimated_minutes)
+    summary = _escape(task.summary)
+    branch = _escape(task.branch) if task.branch else None
+    project = _escape(task.project) if task.project else None
+    ticket = _escape(task.ticket) if task.ticket else None
+
     parts = []
-    if inline_project and task.project:
-        parts.append(f"{task.project}/{task.branch}" if task.branch else task.project)
-    elif task.branch:
-        parts.append(task.branch)
+    if ticket:
+        parts.append(ticket)
+    if inline_project and project:
+        parts.append(f"[bold magenta]{project}[/bold magenta]/{branch}" if branch else f"[bold magenta]{project}[/bold magenta]")
+    elif branch:
+        parts.append(branch)
     parts.append(duration)
     meta = f" ({', '.join(parts)})"
-    return f"  \u2022 {task.summary}{meta}"
+    return f"  [yellow]\u2022[/yellow] {summary}[dim]{meta}[/dim]"
 
 
 def format_standup(tasks: list[Task], report_date: date, group_by: str = "project") -> str:
     """Render a plain-text standup update."""
     date_str = f"{report_date.strftime('%B')} {report_date.day}, {report_date.year}"
-    lines: list[str] = [f"Standup \u2014 {date_str}", ""]
+    lines: list[str] = [f"[bold yellow]Standup \u2014 {date_str}[/bold yellow]", ""]
 
     if not tasks:
         lines.append("(no commits found)")
-        lines.extend(["", "Total estimated time: 0.0h"])
+        lines.extend(["", "[dim]Estimated effort:[/dim] [green]0.0h[/green]"])
         return "\n".join(lines)
 
     projects = sorted({t.project for t in tasks if t.project})
@@ -51,13 +60,13 @@ def format_standup(tasks: list[Task], report_date: date, group_by: str = "projec
 
         for day in sorted(by_day):
             label = _day_label(day, today)
-            lines.append(f"{label}:")
+            lines.append(f"[blue]{label}:[/blue]")
             for task in by_day[day]:
                 lines.append(_render_task_bullet(task, inline_project=True))
             lines.append("")
 
         total_hours = sum(t.estimated_minutes for t in tasks) / 60
-        lines.append(f"Total estimated time: {total_hours:.1f}h across {len(projects)} projects")
+        lines.append(f"[dim]Estimated effort:[/dim] [green]{total_hours:.1f}h[/green] [dim]across {len(projects)} projects[/dim]")
     elif multi:
         # Group by project (default).
         by_project: dict[str, list[Task]] = defaultdict(list)
@@ -65,14 +74,14 @@ def format_standup(tasks: list[Task], report_date: date, group_by: str = "projec
             by_project[task.project].append(task)
 
         for project in projects:
-            lines.append(f"{project}:")
+            lines.append(f"[bold magenta]{_escape(project)}:[/bold magenta]")
             by_day = defaultdict(list)
             for task in by_project[project]:
                 by_day[task.first_commit_time.date()].append(task)
             for day in sorted(by_day):
                 if len(by_day) > 1:
                     label = _day_label(day, today)
-                    lines.append(f"  {label}:")
+                    lines.append(f"  [blue]{label}:[/blue]")
                     for task in by_day[day]:
                         lines.append(f"  {_render_task_bullet(task)}")
                 else:
@@ -81,7 +90,7 @@ def format_standup(tasks: list[Task], report_date: date, group_by: str = "projec
             lines.append("")
 
         total_hours = sum(t.estimated_minutes for t in tasks) / 60
-        lines.append(f"Total estimated time: {total_hours:.1f}h across {len(projects)} projects")
+        lines.append(f"[dim]Estimated effort:[/dim] [green]{total_hours:.1f}h[/green] [dim]across {len(projects)} projects[/dim]")
     else:
         by_day = defaultdict(list)
         for task in tasks:
@@ -89,13 +98,13 @@ def format_standup(tasks: list[Task], report_date: date, group_by: str = "projec
 
         for day in sorted(by_day):
             label = _day_label(day, today)
-            lines.append(f"{label}:")
+            lines.append(f"[blue]{label}:[/blue]")
             for task in by_day[day]:
                 lines.append(_render_task_bullet(task))
             lines.append("")
 
         total_hours = sum(t.estimated_minutes for t in tasks) / 60
-        lines.append(f"Total estimated time: {total_hours:.1f}h")
+        lines.append(f"[dim]Estimated effort:[/dim] [green]{total_hours:.1f}h[/green]")
 
     return "\n".join(lines)
 
@@ -112,11 +121,11 @@ def format_week_template(tasks: list[Task], start_date: date, end_date: date) ->
         e = f"{end_date.strftime('%B')} {end_date.day}, {end_date.year}"
         header_date = f"{s} \u2013 {e}"
 
-    lines: list[str] = [f"Weekly Summary \u2014 {header_date}", ""]
+    lines: list[str] = [f"[bold yellow]Weekly Summary \u2014 {header_date}[/bold yellow]", ""]
 
     if not tasks:
         lines.append("  (no commits found)")
-        lines.extend(["", "Week total: 0.0h across 0 tasks"])
+        lines.extend(["", "[dim]Week total:[/dim] [green]0.0h[/green] [dim]across 0 tasks[/dim]"])
         return "\n".join(lines)
 
     by_day: dict[date, list[Task]] = defaultdict(list)
@@ -128,14 +137,14 @@ def format_week_template(tasks: list[Task], start_date: date, end_date: date) ->
     for day in sorted(by_day):
         day_tasks = by_day[day]
         day_label = f"{day.strftime('%A')} ({day.strftime('%B')} {day.day})"
-        lines.append(f"{day_label}:")
+        lines.append(f"[blue]{day_label}:[/blue]")
         for task in day_tasks:
             duration = format_duration(task.estimated_minutes)
-            lines.append(f"  \u2022 {task.summary} ({duration})")
+            lines.append(f"  [yellow]\u2022[/yellow] {_escape(task.summary)} [dim]({duration})[/dim]")
         day_hours = sum(t.estimated_minutes for t in day_tasks) / 60
-        lines.append(f"  Day total: {day_hours:.1f}h")
+        lines.append(f"  [dim]Day total:[/dim] [green]{day_hours:.1f}h[/green]")
         lines.append("")
 
     n = len(tasks)
-    lines.append(f"Week total: {week_minutes / 60:.1f}h across {n} task{'s' if n != 1 else ''}")
+    lines.append(f"[dim]Week total:[/dim] [green]{week_minutes / 60:.1f}h[/green] [dim]across {n} task{'s' if n != 1 else ''}[/dim]")
     return "\n".join(lines)

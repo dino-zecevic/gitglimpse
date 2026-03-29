@@ -13,9 +13,10 @@ from gitglimpse import __version__
 from gitglimpse.config import Config, is_first_run, load_config
 from gitglimpse.formatters.json import format_standup_json, format_week_json
 from gitglimpse.formatters.markdown import format_report
+from gitglimpse.formatters.pr import format_pr_json, format_pr_template
 from gitglimpse.formatters.template import format_standup, format_week_template
-from gitglimpse.git import GitError, get_commit_diff, get_commits
-from gitglimpse.grouping import group_commits_into_tasks, is_vague_message
+from gitglimpse.git import GitError, get_branch_commits, get_commit_diff, get_commits, get_current_branch_name
+from gitglimpse.grouping import filter_noise_commits, group_commits_into_tasks, is_vague_message
 from gitglimpse.providers import get_provider
 from gitglimpse.providers.local import LocalProvider
 
@@ -36,15 +37,15 @@ def _version_callback(value: bool) -> None:
 
 @app.callback()
 def _app_callback(
-    version: Annotated[
-        bool,
-        typer.Option(
-            "--version",
-            callback=_version_callback,
-            is_eager=True,
-            help="Show version and exit.",
-        ),
-    ] = False,
+        version: Annotated[
+            bool,
+            typer.Option(
+                "--version",
+                callback=_version_callback,
+                is_eager=True,
+                help="Show version and exit.",
+            ),
+        ] = False,
 ) -> None:
     """Analyze git history and generate standup updates, reports, and summaries."""
 
@@ -82,8 +83,8 @@ def _report_date(since: str) -> date:
 
 
 def _resolve_author(
-    cli_author: Optional[str],
-    cfg_author: Optional[str],
+        cli_author: Optional[str],
+        cfg_author: Optional[str],
 ) -> Optional[str]:
     """Priority: CLI flag > config file > None (show all commits)."""
     if cli_author is not None:
@@ -172,8 +173,8 @@ def _discover_repos(base: Path) -> list[Path]:
 
 
 def _resolve_repo_paths(
-    cli_repo: Optional[str],
-    cli_repos: Optional[str],
+        cli_repo: Optional[str],
+        cli_repos: Optional[str],
 ) -> list[tuple[Path, str]]:
     """Return a list of (repo_path, project_name) tuples.
 
@@ -218,16 +219,18 @@ def _resolve_repo_paths(
 
 
 def _collect_multi_project(
-    repo_pairs: list[tuple[Path, str]],
-    since: str | None,
-    until: str | None,
-    author: str | None,
-) -> list:
+        repo_pairs: list[tuple[Path, str]],
+        since: str | None,
+        until: str | None,
+        author: str | None,
+        do_filter: bool = False,
+) -> tuple[list, int]:
     """Collect and group commits from multiple repos.
 
-    Returns a flat list of Tasks with .project set.
+    Returns a tuple of (flat list of Tasks with .project set, filtered count).
     """
     all_tasks: list = []
+    total_filtered = 0
     for repo_path, project_name in repo_pairs:
         try:
             commits = get_commits(
@@ -235,16 +238,20 @@ def _collect_multi_project(
             )
         except GitError:
             continue
+        if do_filter:
+            original_count = len(commits)
+            commits = filter_noise_commits(commits)
+            total_filtered += original_count - len(commits)
         tasks = group_commits_into_tasks(commits, project=project_name)
         all_tasks.extend(tasks)
     all_tasks.sort(key=lambda t: t.first_commit_time)
-    return all_tasks
+    return all_tasks, total_filtered
 
 
 def _collect_diff_snippets(
-    tasks: list,
-    repo_path: Optional[Path],
-    all_commits: bool = False,
+        tasks: list,
+        repo_path: Optional[Path],
+        all_commits: bool = False,
 ) -> dict[str, str]:
     """Return a mapping of commit_hash → diff snippet.
 
@@ -263,9 +270,9 @@ def _collect_diff_snippets(
 
 
 def _print_status_line(
-    resolved_author: Optional[str],
-    provider: object | None,
-    ctx_mode: str = "commits",
+        resolved_author: Optional[str],
+        provider: object | None,
+        ctx_mode: str = "commits",
 ) -> None:
     """Print a one-line dim status showing author, context, and active model."""
     from gitglimpse.providers.openai import OpenAIProvider
@@ -294,11 +301,11 @@ def _print_status_line(
 
 
 def _resolve_provider(
-    cfg: Config,
-    use_local: bool,
-    local_url_override: Optional[str],
-    model_override: Optional[str] = None,
-    context_mode: str = "commits",
+        cfg: Config,
+        use_local: bool,
+        local_url_override: Optional[str],
+        model_override: Optional[str] = None,
+        context_mode: str = "commits",
 ) -> object | None:
     """Return the appropriate provider, or None for template-only output.
 
@@ -325,42 +332,48 @@ def _resolve_provider(
 
 @app.command()
 def standup(
-    as_json: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
-    no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use template formatter.")] = False,
-    local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
-    local_llm_url: Annotated[
-        Optional[str],
-        typer.Option("--local-llm-url", help="Override local LLM base URL."),
-    ] = None,
-    model: Annotated[
-        Optional[str],
-        typer.Option("--model", help="LLM model to use (e.g. qwen2.5-coder:latest)."),
-    ] = None,
-    since: Annotated[str, typer.Option("--since", help="Show commits since this date or period.")] = _SENTINEL_SINCE,
-    author: Annotated[
-        Optional[str],
-        typer.Option("--author", help="Filter by author email."),
-    ] = None,
-    repo: Annotated[
-        Optional[str],
-        typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
-    ] = None,
-    repos: Annotated[
-        Optional[str],
-        typer.Option("--repos", help="Comma-separated list of repo paths for multi-project mode."),
-    ] = None,
-    context: Annotated[
-        Optional[str],
-        typer.Option("--context", help="LLM context: 'commits', 'diffs', or 'both'."),
-    ] = None,
-    group: Annotated[
-        Optional[str],
-        typer.Option("--group", help="Multi-project grouping: 'project' (default) or 'task' (flat list)."),
-    ] = None,
-    skip_setup: Annotated[
-        bool,
-        typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
-    ] = False,
+        as_json: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+        no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use template formatter.")] = False,
+        local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
+        local_llm_url: Annotated[
+            Optional[str],
+            typer.Option("--local-llm-url", help="Override local LLM base URL."),
+        ] = None,
+        model: Annotated[
+            Optional[str],
+            typer.Option("--model", help="LLM model to use (e.g. qwen2.5-coder:latest)."),
+        ] = None,
+        since: Annotated[
+            str, typer.Option("--since", help="Show commits since this date or period.")] = _SENTINEL_SINCE,
+        author: Annotated[
+            Optional[str],
+            typer.Option("--author", help="Filter by author email."),
+        ] = None,
+        repo: Annotated[
+            Optional[str],
+            typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
+        ] = None,
+        repos: Annotated[
+            Optional[str],
+            typer.Option("--repos", help="Comma-separated list of repo paths for multi-project mode."),
+        ] = None,
+        context: Annotated[
+            Optional[str],
+            typer.Option("--context", help="LLM context: 'commits', 'diffs', or 'both'."),
+        ] = None,
+        group: Annotated[
+            Optional[str],
+            typer.Option("--group", help="Multi-project grouping: 'project' (default) or 'task' (flat list)."),
+        ] = None,
+        filter_noise: Annotated[
+            Optional[bool],
+            typer.Option("--filter-noise/--no-filter-noise",
+                         help="Filter out noise commits (merges, formatting, lock files)."),
+        ] = None,
+        skip_setup: Annotated[
+            bool,
+            typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
+        ] = False,
 ) -> None:
     """Generate a standup update from recent git commits.
 
@@ -377,12 +390,16 @@ def standup(
     ctx_mode = context or cfg.context_mode
     resolved_author = _resolve_author(author, cfg.author_email)
     group_by = group or cfg.group_by
+    do_filter = filter_noise if filter_noise is not None else cfg.filter_noise
 
     repo_pairs = _resolve_repo_paths(repo, repos)
     multi = len(repo_pairs) > 1
 
+    filtered_count = 0
     if multi:
-        tasks = _collect_multi_project(repo_pairs, effective, None, resolved_author)
+        tasks, filtered_count = _collect_multi_project(
+            repo_pairs, effective, None, resolved_author, do_filter=do_filter,
+        )
     else:
         repo_path = repo_pairs[0][0] if repo_pairs[0][1] else (Path(repo) if repo else None)
         try:
@@ -390,6 +407,10 @@ def standup(
         except GitError as exc:
             console.print(f"[bold red]Error:[/bold red] {exc}")
             raise typer.Exit(1)
+        if do_filter:
+            original_count = len(commits)
+            commits = filter_noise_commits(commits)
+            filtered_count = original_count - len(commits)
         tasks = group_commits_into_tasks(commits)
 
     report_date = _report_date(effective)
@@ -408,8 +429,19 @@ def standup(
 
     if as_json:
         since_date = _parse_date_bound(effective, 1)
-        print(format_standup_json(tasks, report_date, since_date, diff_snippets=diff_snippets, context_mode=ctx_mode))
+        json_str = format_standup_json(tasks, report_date, since_date, diff_snippets=diff_snippets,
+                                       context_mode=ctx_mode)
+        if filtered_count > 0:
+            import json as _json
+            data = _json.loads(json_str)
+            data["filtered_commits"] = filtered_count
+            json_str = _json.dumps(data, indent=2)
+        print(json_str)
         return
+
+    if filtered_count > 0:
+        console.print(f"[dim]Filtered {filtered_count} noise commits (merges, formatting, dependencies)[/dim]",
+                      highlight=False)
 
     active_provider: object | None = None
     llm_output: str | None = None
@@ -426,11 +458,13 @@ def standup(
                 llm_output = provider.summarize_standup(tasks, report_date, diff_snippets)
 
     _print_status_line(resolved_author, active_provider, ctx_mode)
-    console.print(
-        llm_output if llm_output else format_standup(tasks, report_date, group_by=group_by if multi else "project"),
-        markup=False,
-        highlight=False,
-    )
+    if llm_output:
+        console.print(llm_output, markup=False, highlight=False)
+    else:
+        console.print(
+            format_standup(tasks, report_date, group_by=group_by if multi else "project"),
+            highlight=False,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -439,41 +473,47 @@ def standup(
 
 @app.command()
 def report(
-    no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use Markdown formatter.")] = False,
-    local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
-    local_llm_url: Annotated[
-        Optional[str],
-        typer.Option("--local-llm-url", help="Override local LLM base URL."),
-    ] = None,
-    model: Annotated[
-        Optional[str],
-        typer.Option("--model", help="LLM model to use (e.g. qwen2.5-coder:latest)."),
-    ] = None,
-    since: Annotated[str, typer.Option("--since", help="Show commits since this date or period.")] = _SENTINEL_SINCE,
-    author: Annotated[
-        Optional[str],
-        typer.Option("--author", help="Filter by author email."),
-    ] = None,
-    repo: Annotated[
-        Optional[str],
-        typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
-    ] = None,
-    repos: Annotated[
-        Optional[str],
-        typer.Option("--repos", help="Comma-separated list of repo paths for multi-project mode."),
-    ] = None,
-    output: Annotated[
-        Optional[str],
-        typer.Option("--output", "-o", help="Save report to this file instead of printing."),
-    ] = None,
-    context: Annotated[
-        Optional[str],
-        typer.Option("--context", help="LLM context: 'commits', 'diffs', or 'both'."),
-    ] = None,
-    skip_setup: Annotated[
-        bool,
-        typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
-    ] = False,
+        no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use Markdown formatter.")] = False,
+        local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
+        local_llm_url: Annotated[
+            Optional[str],
+            typer.Option("--local-llm-url", help="Override local LLM base URL."),
+        ] = None,
+        model: Annotated[
+            Optional[str],
+            typer.Option("--model", help="LLM model to use (e.g. qwen2.5-coder:latest)."),
+        ] = None,
+        since: Annotated[
+            str, typer.Option("--since", help="Show commits since this date or period.")] = _SENTINEL_SINCE,
+        author: Annotated[
+            Optional[str],
+            typer.Option("--author", help="Filter by author email."),
+        ] = None,
+        repo: Annotated[
+            Optional[str],
+            typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
+        ] = None,
+        repos: Annotated[
+            Optional[str],
+            typer.Option("--repos", help="Comma-separated list of repo paths for multi-project mode."),
+        ] = None,
+        output: Annotated[
+            Optional[str],
+            typer.Option("--output", "-o", help="Save report to this file instead of printing."),
+        ] = None,
+        context: Annotated[
+            Optional[str],
+            typer.Option("--context", help="LLM context: 'commits', 'diffs', or 'both'."),
+        ] = None,
+        filter_noise: Annotated[
+            Optional[bool],
+            typer.Option("--filter-noise/--no-filter-noise",
+                         help="Filter out noise commits (merges, formatting, lock files)."),
+        ] = None,
+        skip_setup: Annotated[
+            bool,
+            typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
+        ] = False,
 ) -> None:
     """Generate a daily Markdown report from git commits.
 
@@ -487,12 +527,16 @@ def report(
     effective = _effective_since(since, cfg.default_since)
     ctx_mode = context or cfg.context_mode
     resolved_author = _resolve_author(author, cfg.author_email)
+    do_filter = filter_noise if filter_noise is not None else cfg.filter_noise
 
     repo_pairs = _resolve_repo_paths(repo, repos)
     multi = len(repo_pairs) > 1
 
+    filtered_count = 0
     if multi:
-        tasks = _collect_multi_project(repo_pairs, effective, None, resolved_author)
+        tasks, filtered_count = _collect_multi_project(
+            repo_pairs, effective, None, resolved_author, do_filter=do_filter,
+        )
     else:
         repo_path = repo_pairs[0][0] if repo_pairs[0][1] else (Path(repo) if repo else None)
         try:
@@ -500,9 +544,17 @@ def report(
         except GitError as exc:
             console.print(f"[bold red]Error:[/bold red] {exc}")
             raise typer.Exit(1)
+        if do_filter:
+            original_count = len(commits)
+            commits = filter_noise_commits(commits)
+            filtered_count = original_count - len(commits)
         tasks = group_commits_into_tasks(commits)
 
     report_date = _report_date(effective)
+
+    if filtered_count > 0:
+        console.print(f"[dim]Filtered {filtered_count} noise commits (merges, formatting, dependencies)[/dim]",
+                      highlight=False)
 
     active_provider: object | None = None
     llm_output: str | None = None
@@ -515,7 +567,8 @@ def report(
                         "[yellow]⚠ Local LLM not reachable — falling back to Markdown formatter.[/yellow]"
                     )
             else:
-                diff_snippets = _collect_diff_snippets(tasks, None, all_commits=True) if ctx_mode in ("diffs", "both") else None
+                diff_snippets = _collect_diff_snippets(tasks, None, all_commits=True) if ctx_mode in ("diffs",
+                                                                                                      "both") else None
                 active_provider = provider
                 llm_output = provider.summarize_report(tasks, report_date, diff_snippets)
 
@@ -535,45 +588,50 @@ def report(
 
 @app.command()
 def week(
-    as_json: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
-    no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use template formatter.")] = False,
-    local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
-    local_llm_url: Annotated[
-        Optional[str],
-        typer.Option("--local-llm-url", help="Override local LLM base URL."),
-    ] = None,
-    model: Annotated[
-        Optional[str],
-        typer.Option("--model", help="LLM model to use (e.g. qwen2.5-coder:latest)."),
-    ] = None,
-    since: Annotated[
-        str,
-        typer.Option("--since", help="Start of week range (default: 7 days ago)."),
-    ] = _DEFAULT_WEEK_SINCE,
-    until: Annotated[
-        Optional[str],
-        typer.Option("--until", help="End of week range (default: today)."),
-    ] = None,
-    author: Annotated[
-        Optional[str],
-        typer.Option("--author", help="Filter by author email."),
-    ] = None,
-    repo: Annotated[
-        Optional[str],
-        typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
-    ] = None,
-    repos: Annotated[
-        Optional[str],
-        typer.Option("--repos", help="Comma-separated list of repo paths for multi-project mode."),
-    ] = None,
-    context: Annotated[
-        Optional[str],
-        typer.Option("--context", help="LLM context: 'commits', 'diffs', or 'both'."),
-    ] = None,
-    skip_setup: Annotated[
-        bool,
-        typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
-    ] = False,
+        as_json: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+        no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use template formatter.")] = False,
+        local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
+        local_llm_url: Annotated[
+            Optional[str],
+            typer.Option("--local-llm-url", help="Override local LLM base URL."),
+        ] = None,
+        model: Annotated[
+            Optional[str],
+            typer.Option("--model", help="LLM model to use (e.g. qwen2.5-coder:latest)."),
+        ] = None,
+        since: Annotated[
+            str,
+            typer.Option("--since", help="Start of week range (default: 7 days ago)."),
+        ] = _DEFAULT_WEEK_SINCE,
+        until: Annotated[
+            Optional[str],
+            typer.Option("--until", help="End of week range (default: today)."),
+        ] = None,
+        author: Annotated[
+            Optional[str],
+            typer.Option("--author", help="Filter by author email."),
+        ] = None,
+        repo: Annotated[
+            Optional[str],
+            typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
+        ] = None,
+        repos: Annotated[
+            Optional[str],
+            typer.Option("--repos", help="Comma-separated list of repo paths for multi-project mode."),
+        ] = None,
+        context: Annotated[
+            Optional[str],
+            typer.Option("--context", help="LLM context: 'commits', 'diffs', or 'both'."),
+        ] = None,
+        filter_noise: Annotated[
+            Optional[bool],
+            typer.Option("--filter-noise/--no-filter-noise",
+                         help="Filter out noise commits (merges, formatting, lock files)."),
+        ] = None,
+        skip_setup: Annotated[
+            bool,
+            typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
+        ] = False,
 ) -> None:
     """Generate a weekly summary from git commits.
 
@@ -586,12 +644,16 @@ def week(
     cfg = _load_or_onboard(skip_setup)
     ctx_mode = context or cfg.context_mode
     resolved_author = _resolve_author(author, cfg.author_email)
+    do_filter = filter_noise if filter_noise is not None else cfg.filter_noise
 
     repo_pairs = _resolve_repo_paths(repo, repos)
     multi = len(repo_pairs) > 1
 
+    filtered_count = 0
     if multi:
-        tasks = _collect_multi_project(repo_pairs, since, until, resolved_author)
+        tasks, filtered_count = _collect_multi_project(
+            repo_pairs, since, until, resolved_author, do_filter=do_filter,
+        )
     else:
         repo_path = repo_pairs[0][0] if repo_pairs[0][1] else (Path(repo) if repo else None)
         try:
@@ -604,6 +666,10 @@ def week(
         except GitError as exc:
             console.print(f"[bold red]Error:[/bold red] {exc}")
             raise typer.Exit(1)
+        if do_filter:
+            original_count = len(commits)
+            commits = filter_noise_commits(commits)
+            filtered_count = original_count - len(commits)
         tasks = group_commits_into_tasks(commits)
 
     start_date = _parse_date_bound(since, 7)
@@ -612,8 +678,18 @@ def week(
     diff_snippets = _collect_diff_snippets(tasks, None, all_commits=True) if ctx_mode in ("diffs", "both") else None
 
     if as_json:
-        print(format_week_json(tasks, start_date, end_date, diff_snippets=diff_snippets, context_mode=ctx_mode))
+        json_str = format_week_json(tasks, start_date, end_date, diff_snippets=diff_snippets, context_mode=ctx_mode)
+        if filtered_count > 0:
+            import json as _json
+            data = _json.loads(json_str)
+            data["filtered_commits"] = filtered_count
+            json_str = _json.dumps(data, indent=2)
+        print(json_str)
         return
+
+    if filtered_count > 0:
+        console.print(f"[dim]Filtered {filtered_count} noise commits (merges, formatting, dependencies)[/dim]",
+                      highlight=False)
 
     active_provider: object | None = None
     llm_output: str | None = None
@@ -630,11 +706,152 @@ def week(
                 llm_output = provider.summarize_week(tasks, start_date, end_date, diff_snippets)
 
     _print_status_line(resolved_author, active_provider, ctx_mode)
-    console.print(
-        llm_output if llm_output else format_week_template(tasks, start_date, end_date),
-        markup=False,
-        highlight=False,
-    )
+    if llm_output:
+        console.print(llm_output, markup=False, highlight=False)
+    else:
+        console.print(
+            format_week_template(tasks, start_date, end_date),
+            highlight=False,
+        )
+
+
+# ---------------------------------------------------------------------------
+# pr
+# ---------------------------------------------------------------------------
+
+@app.command()
+def pr(
+        as_json: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+        no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use template formatter.")] = False,
+        local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
+        local_llm_url: Annotated[
+            Optional[str],
+            typer.Option("--local-llm-url", help="Override local LLM base URL."),
+        ] = None,
+        model: Annotated[
+            Optional[str],
+            typer.Option("--model", help="LLM model to use (e.g. qwen2.5-coder:latest)."),
+        ] = None,
+        base: Annotated[
+            str,
+            typer.Option("--base", help="Base branch to compare against."),
+        ] = "main",
+        repo: Annotated[
+            Optional[str],
+            typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
+        ] = None,
+        context: Annotated[
+            Optional[str],
+            typer.Option("--context", help="LLM context: 'commits', 'diffs', or 'both'."),
+        ] = None,
+        filter_noise: Annotated[
+            Optional[bool],
+            typer.Option("--filter-noise/--no-filter-noise",
+                         help="Filter out noise commits (merges, formatting, lock files)."),
+        ] = None,
+        skip_setup: Annotated[
+            bool,
+            typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
+        ] = False,
+) -> None:
+    """Generate a pull request summary. Best results with --local-llm or a configured API provider.
+
+    \b
+    Examples:
+      glimpse pr
+      glimpse pr --base main
+      glimpse pr --json
+      glimpse pr --context diffs
+    """
+    cfg = _load_or_onboard(skip_setup)
+    # PR defaults to "both" context for richer output, unless explicitly overridden.
+    ctx_mode = context or "both"
+    do_filter = filter_noise if filter_noise is not None else cfg.filter_noise
+
+    repo_path = Path(repo).resolve() if repo else None
+
+    # Get current branch name.
+    try:
+        current_branch = get_current_branch_name(repo_path)
+    except GitError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(1)
+
+    # Get commits on this branch that aren't on base.
+    try:
+        commits = get_branch_commits(repo_path=repo_path, base=base)
+    except GitError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(1)
+
+    if not commits:
+        console.print(f"No commits on this branch compared to [bold]{base}[/bold].")
+        raise typer.Exit(0)
+
+    # Noise filtering.
+    filtered_count = 0
+    if do_filter:
+        original_count = len(commits)
+        commits = filter_noise_commits(commits)
+        filtered_count = original_count - len(commits)
+
+    tasks = group_commits_into_tasks(commits)
+
+    # Extract ticket from branch.
+    from gitglimpse.grouping import extract_ticket_id
+    ticket = extract_ticket_id(current_branch)
+
+    # Collect diff snippets if needed.
+    diff_snippets: dict[str, str] | None = None
+    if ctx_mode in ("diffs", "both"):
+        diff_snippets = _collect_diff_snippets(tasks, repo_path, all_commits=True)
+
+    # JSON output.
+    if as_json:
+        print(format_pr_json(
+            tasks, current_branch, base,
+            ticket=ticket,
+            filtered_count=filtered_count,
+            diff_snippets=diff_snippets,
+            context_mode=ctx_mode,
+        ))
+        return
+
+    if filtered_count > 0:
+        console.print(f"[dim]Filtered {filtered_count} noise commits (merges, formatting, dependencies)[/dim]",
+                      highlight=False)
+
+    # LLM output.
+    active_provider: object | None = None
+    llm_output: str | None = None
+    if not no_llm:
+        provider = _resolve_provider(cfg, local_llm, local_llm_url, model, context_mode=ctx_mode)
+        if provider is not None:
+            if isinstance(provider, LocalProvider) and not provider.is_available():
+                if local_llm:
+                    console.print(
+                        "[yellow]⚠ Local LLM not reachable — falling back to template.[/yellow]"
+                    )
+            else:
+                active_provider = provider
+                llm_output = provider.summarize_pr(tasks, current_branch, base, diff_snippets)
+
+    _print_status_line(None, active_provider, ctx_mode)
+    if llm_output:
+        console.print(llm_output, markup=False, highlight=False)
+    else:
+        console.print(
+            format_pr_template(tasks, current_branch, base, ticket=ticket),
+            highlight=False,
+        )
+        # Show tip if no LLM is configured at all (not just unavailable this run).
+        if active_provider is None and cfg.default_mode == "template":
+            console.print()
+            console.print(
+                "[dim]Tip: PR summaries are richer with an LLM. "
+                "Try: glimpse pr --local-llm[/dim]",
+                highlight=False,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -680,7 +897,7 @@ def config_setup() -> None:
 # init
 # ---------------------------------------------------------------------------
 
-_COMMAND_TEMPLATES = ("standup.md", "report.md", "week.md")
+_COMMAND_TEMPLATES = ("standup.md", "report.md", "week.md", "pr.md")
 
 
 def _read_template(name: str) -> str:
@@ -692,10 +909,10 @@ def _read_template(name: str) -> str:
 
 
 def _write_command_file(
-    dest: Path,
-    content: str,
-    force: bool,
-    dry_run: bool,
+        dest: Path,
+        content: str,
+        force: bool,
+        dry_run: bool,
 ) -> bool:
     """Write *dest* with *content*. Return True if the file was written."""
     if dest.exists() and not force:
@@ -711,18 +928,18 @@ def _write_command_file(
 
 @app.command()
 def init(
-    cursor: Annotated[
-        bool,
-        typer.Option("--cursor", help="Also create .cursor/commands/ files."),
-    ] = False,
-    force: Annotated[
-        bool,
-        typer.Option("--force", help="Overwrite existing files without prompting."),
-    ] = False,
-    repo: Annotated[
-        Optional[str],
-        typer.Option("--repo", help="Target repository root. Defaults to current directory."),
-    ] = None,
+        cursor: Annotated[
+            bool,
+            typer.Option("--cursor", help="Also create .cursor/commands/ files."),
+        ] = False,
+        force: Annotated[
+            bool,
+            typer.Option("--force", help="Overwrite existing files without prompting."),
+        ] = False,
+        repo: Annotated[
+            Optional[str],
+            typer.Option("--repo", help="Target repository root. Defaults to current directory."),
+        ] = None,
 ) -> None:
     """Initialize Claude Code (and optionally Cursor) slash-command files.
 
@@ -766,6 +983,9 @@ def init(
             ).replace(
                 "glimpse week --json",
                 f"glimpse week --json --context {context_mode}",
+            ).replace(
+                "glimpse pr --json",
+                f"glimpse pr --json --context {context_mode}",
             )
             written = _write_command_file(dest, content, force=force, dry_run=False)
             if written:

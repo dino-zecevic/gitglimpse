@@ -22,7 +22,7 @@ This installs the `glimpse` entry point in editable mode alongside all optional 
 python -m pytest
 ```
 
-All 96 tests should pass. The suite covers git parsing, commit grouping, time estimation, and output formatting — no network calls, no LLM required.
+All tests should pass. The suite covers git parsing, commit grouping, effort estimation, and output formatting — no network calls, no LLM required.
 
 ---
 
@@ -34,7 +34,7 @@ src/gitglimpse/
 ├── cli.py               # Typer commands (standup, report, week, config, init)
 ├── git.py               # git log parsing → Commit dataclass
 ├── grouping.py          # Commit → Task grouping (branch + time proximity)
-├── estimation.py        # Duration estimation + format_duration()
+├── estimation.py        # Effort estimation + format_duration()
 ├── config.py            # TOML config load/save via platformdirs
 ├── formatters/
 │   ├── template.py      # Plain-text standup + weekly summary

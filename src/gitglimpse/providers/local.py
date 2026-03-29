@@ -144,3 +144,14 @@ class LocalProvider(BaseLLMProvider):
         context = self._build_week_context(tasks, start_date, end_date, diff_snippets)
         prompt = self.get_week_system_prompt(context_mode=self.context_mode)
         return self._validated(self._chat(context, system_prompt=prompt))
+
+    def summarize_pr(
+        self,
+        tasks: list[Task],
+        branch: str,
+        base: str,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str | None:
+        context = self._format_pr_context(tasks, branch, base, diff_snippets)
+        prompt = self.get_pr_system_prompt(context_mode=self.context_mode)
+        return self._validated(self._chat(context, system_prompt=prompt))
