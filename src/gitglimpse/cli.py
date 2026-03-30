@@ -49,7 +49,6 @@ def _app_callback(
 ) -> None:
     """Analyze git history and generate standup updates, reports, and summaries."""
 
-
 console = Console()
 
 # ---------------------------------------------------------------------------
