@@ -11,6 +11,7 @@ def _task_dict(task: Task, diff_snippets: dict | None = None, context_mode: str 
     d: dict = {
         "summary": task.summary,
         "branch": task.branch,
+        "ticket": task.ticket,
         "commits": len(task.commits),
         "insertions": task.insertions,
         "deletions": task.deletions,
@@ -89,6 +90,7 @@ def format_standup_json(
     data["total_estimated_hours"] = round(
         sum(t.estimated_minutes for t in tasks) / 60, 1
     )
+    data["effort_note"] = "rough estimate based on commit timing"
     return _json.dumps(data, indent=2)
 
 
@@ -120,5 +122,6 @@ def format_week_json(
         "days": days,
         "week_total_hours": round(sum(t.estimated_minutes for t in tasks) / 60, 1),
         "total_tasks": len(tasks),
+        "effort_note": "rough estimate based on commit timing",
     }
     return _json.dumps(data, indent=2)

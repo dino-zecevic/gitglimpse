@@ -24,8 +24,11 @@ def _render_task_bullet(task: Task, inline_project: bool = False) -> str:
     summary = _escape(task.summary)
     branch = _escape(task.branch) if task.branch else None
     project = _escape(task.project) if task.project else None
+    ticket = _escape(task.ticket) if task.ticket else None
 
     parts = []
+    if ticket:
+        parts.append(ticket)
     if inline_project and project:
         parts.append(f"[bold magenta]{project}[/bold magenta]/{branch}" if branch else f"[bold magenta]{project}[/bold magenta]")
     elif branch:
@@ -42,7 +45,7 @@ def format_standup(tasks: list[Task], report_date: date, group_by: str = "projec
 
     if not tasks:
         lines.append("(no commits found)")
-        lines.extend(["", "[dim]Total estimated time:[/dim] [green]0.0h[/green]"])
+        lines.extend(["", "[dim]Estimated effort:[/dim] [green]0.0h[/green]"])
         return "\n".join(lines)
 
     projects = sorted({t.project for t in tasks if t.project})
@@ -63,7 +66,7 @@ def format_standup(tasks: list[Task], report_date: date, group_by: str = "projec
             lines.append("")
 
         total_hours = sum(t.estimated_minutes for t in tasks) / 60
-        lines.append(f"[dim]Total estimated time:[/dim] [green]{total_hours:.1f}h[/green] [dim]across {len(projects)} projects[/dim]")
+        lines.append(f"[dim]Estimated effort:[/dim] [green]{total_hours:.1f}h[/green] [dim]across {len(projects)} projects[/dim]")
     elif multi:
         # Group by project (default).
         by_project: dict[str, list[Task]] = defaultdict(list)
@@ -87,7 +90,7 @@ def format_standup(tasks: list[Task], report_date: date, group_by: str = "projec
             lines.append("")
 
         total_hours = sum(t.estimated_minutes for t in tasks) / 60
-        lines.append(f"[dim]Total estimated time:[/dim] [green]{total_hours:.1f}h[/green] [dim]across {len(projects)} projects[/dim]")
+        lines.append(f"[dim]Estimated effort:[/dim] [green]{total_hours:.1f}h[/green] [dim]across {len(projects)} projects[/dim]")
     else:
         by_day = defaultdict(list)
         for task in tasks:
@@ -101,7 +104,7 @@ def format_standup(tasks: list[Task], report_date: date, group_by: str = "projec
             lines.append("")
 
         total_hours = sum(t.estimated_minutes for t in tasks) / 60
-        lines.append(f"[dim]Total estimated time:[/dim] [green]{total_hours:.1f}h[/green]")
+        lines.append(f"[dim]Estimated effort:[/dim] [green]{total_hours:.1f}h[/green]")
 
     return "\n".join(lines)
 

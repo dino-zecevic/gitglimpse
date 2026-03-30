@@ -29,6 +29,7 @@ class Config:
     default_since: str = "yesterday"
     context_mode: str = "commits"            # commits | diffs | both
     group_by: str = "project"              # project | task
+    filter_noise: bool = True
 
 
 def load_config() -> Config:

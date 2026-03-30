@@ -4,13 +4,13 @@
 
 # gitglimpse
 
-**Turn your git history into standup updates, daily reports, and weekly summaries.**
+**Turn your git history into standup updates, PR summaries, and structured context for AI tools.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-F59E0B)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
-[Quick Start](#quick-start) · [Commands](#commands) · [Modes](#modes) · [Claude Code](#claude-code-integration) · [Configuration](#configuration)
+[Quick Start](#quick-start) · [Commands](#commands) · [Modes](#modes) · [Smart Defaults](#smart-defaults) · [Claude Code](#claude-code-integration) · [Configuration](#configuration)
 
 <br>
 
@@ -20,9 +20,11 @@
 
 ---
 
-gitglimpse reads your `git log`, groups commits into logical tasks, estimates how long each took, and formats everything as a standup, a report, or a weekly digest. Optionally, hand that context to an LLM — local or cloud — for a polished write-up.
+gitglimpse reads your `git log`, groups commits into logical tasks, estimates effort based on commit patterns, and formats everything as a standup, a report, or a weekly digest. Optionally, hand that context to an LLM — local or cloud — for a polished write-up.
 
-> **This is a tool for developers, not managers.** No dashboards. No team tracking. No analytics. Just a fast way to remember and communicate what you worked on.
+> **Your AI writes the code. gitglimpse writes the standup.**
+
+This is a tool for developers, not managers. No dashboards. No team tracking. No analytics. Just a fast way to remember and communicate what you worked on.
 
 ---
 
@@ -59,7 +61,7 @@ Yesterday:
   • Implemented JWT refresh logic (feat/auth, ~2.5h)
   • Fixed pagination bug in orders endpoint (~0.5h)
 
-Total estimated time: 3.0h
+Estimated effort: 3.0h
 ```
 
 ### `glimpse report`
@@ -79,6 +81,40 @@ Weekly digest grouped by day, with totals.
 glimpse week                    # last 7 days
 glimpse week --json             # structured output
 glimpse week --since "14 days ago" --until "7 days ago"
+```
+
+### `glimpse pr`
+
+Generate a pull request summary from your current branch.
+
+```bash
+glimpse pr                    # summary comparing current branch to main
+glimpse pr --base develop     # compare against develop instead
+glimpse pr --json             # structured output
+```
+
+```
+PR Summary — feature/PROJ-123-auth → main
+
+Summary
+Implemented JWT auth middleware and login endpoint.
+
+Changes
+  • Implemented JWT auth middleware (PROJ-123, ~2h)
+  • Added login endpoint with tests (PROJ-123, ~1h)
+
+Files changed
+  src/
+    src/auth.py
+    src/middleware.py
+  tests/
+    tests/test_auth.py
+
+Stats
+  4 commits
+  +182 / -12
+  Estimated effort: ~3h
+  Ticket: PROJ-123
 ```
 
 ### `glimpse init`
@@ -109,6 +145,12 @@ glimpse config setup            # interactive setup wizard
 | **JSON** | `--json` | nothing — designed for Claude Code / Cursor |
 
 Template mode is instant and fully offline. LLM modes send commit context to a model for polished output. JSON mode outputs structured data for use with Claude Code or any LLM workflow.
+
+### Template vs LLM output
+
+Template mode reads your commit messages and file change patterns to generate structured output. It's instant and works offline — perfect for quick standups and weekly summaries.
+
+LLM mode (local or cloud) also reads your actual code diffs. This means it can write accurate summaries even when commit messages are vague, and it can synthesize multiple commits into coherent narratives. PR summaries especially benefit from LLM mode — the model reads every line of changed code and describes what the branch actually does.
 
 ---
 
@@ -177,6 +219,16 @@ glimpse standup --context both --local-llm
 
 ---
 
+## Smart Defaults
+
+**Noise filtering** is on by default — merge commits, lock file updates, and formatting changes are automatically excluded. Use `--no-filter-noise` to see everything.
+
+**Ticket extraction** — branch names like `feature/PROJ-123-auth` are automatically parsed. Ticket IDs appear in your output alongside task summaries.
+
+**Weekday-aware lookback** — on Monday, `glimpse standup` automatically looks back to Friday. No flags needed.
+
+---
+
 ## Configuration
 
 First run triggers an interactive setup. Change settings anytime with `glimpse config setup`.
@@ -205,7 +257,7 @@ CLI flags always override config values.
 
 **Task grouping** → clusters commits by branch and time proximity (3-hour gap = new task). Picks the most meaningful commit message as the summary. When messages are vague ("fix", "wip", "asdf"), infers meaning from file paths and change patterns.
 
-**Duration estimation** → analyzes gaps between commits. Continuous work (gap < 2h) counts actual time. Breaks (gap > 2h) cap at 45 minutes. First commit assumes 30 minutes of prior work. Large changes get a 1.2× multiplier.
+**Effort estimation** → analyzes gaps between commits. Continuous work (gap < 2h) counts actual time. Breaks (gap > 2h) cap at 45 minutes. First commit assumes 30 minutes of prior work. Large changes get a 1.2× multiplier. These are rough approximations based on commit timing, not precise time tracking.
 
 **Formatting** → template mode formats directly. LLM mode sends structured context (and optionally diffs) to the model. JSON mode outputs clean data for external tools. LLM output is validated — if a model goes off-script, it falls back to template automatically.
 
@@ -229,6 +281,7 @@ CLI flags always override config values.
 - **Developer tool, not a manager tool** — helps you communicate your own work
 - **LLM-optional** — useful without any AI, better with it
 - **No vendor lock-in** — bring your own model, key, or use none at all
+- **Structured output** — every command supports `--json`, making gitglimpse a building block for your own tools and workflows
 
 ---
 

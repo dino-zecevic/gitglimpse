@@ -12,9 +12,14 @@ def _render_task_section(task: Task, heading_level: str = "##") -> list[str]:
     lines: list[str] = []
     duration = format_duration(task.estimated_minutes)
     branch = task.branch or "general"
+    ticket = task.ticket
     n = len(task.commits)
     commit_word = "commit" if n == 1 else "commits"
-    lines.append(f"{heading_level} {branch} \u2014 {n} {commit_word}, {duration}")
+    heading = f"{heading_level} {branch}"
+    if ticket:
+        heading += f" ({ticket})"
+    heading += f" \u2014 {n} {commit_word}, {duration}"
+    lines.append(heading)
     lines.append("")
 
     all_files = list(dict.fromkeys(fc.path for c in task.commits for fc in c.files))
