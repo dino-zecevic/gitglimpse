@@ -137,10 +137,17 @@ class BaseLLMProvider(ABC):
     )
 
     _PR_PROMPT = (
-        "Generate a pull request summary. Describe what this branch does "
-        "in one paragraph, then list the key changes as bullets. Be specific "
-        "about what was changed and why. No suggestions, no code review, "
-        "no questions. Only describe completed work."
+        "You are writing a pull request description. You have access to the "
+        "code diffs from this branch.\n\n"
+        "Write:\n"
+        "1. A one-paragraph summary of what this entire branch accomplishes "
+        "(not per-commit, but the overall goal)\n"
+        "2. A bullet list of key changes\n"
+        "3. Note any risk areas or things reviewers should pay attention to\n\n"
+        "Be specific — reference actual file names, function names, and logic "
+        "changes from the diffs. No generic statements like 'improved code "
+        "quality'. Only describe what actually changed. "
+        "Keep the total output under 300 words."
     )
 
     @classmethod

@@ -223,12 +223,14 @@ def _collect_multi_project(
     since: str | None,
     until: str | None,
     author: str | None,
-) -> list:
+    do_filter: bool = False,
+) -> tuple[list, int]:
     """Collect and group commits from multiple repos.
 
-    Returns a flat list of Tasks with .project set.
+    Returns a tuple of (flat list of Tasks with .project set, filtered count).
     """
     all_tasks: list = []
+    total_filtered = 0
     for repo_path, project_name in repo_pairs:
         try:
             commits = get_commits(
@@ -236,10 +238,14 @@ def _collect_multi_project(
             )
         except GitError:
             continue
+        if do_filter:
+            original_count = len(commits)
+            commits = filter_noise_commits(commits)
+            total_filtered += original_count - len(commits)
         tasks = group_commits_into_tasks(commits, project=project_name)
         all_tasks.extend(tasks)
     all_tasks.sort(key=lambda t: t.first_commit_time)
-    return all_tasks
+    return all_tasks, total_filtered
 
 
 def _collect_diff_snippets(
@@ -389,7 +395,9 @@ def standup(
 
     filtered_count = 0
     if multi:
-        tasks = _collect_multi_project(repo_pairs, effective, None, resolved_author)
+        tasks, filtered_count = _collect_multi_project(
+            repo_pairs, effective, None, resolved_author, do_filter=do_filter,
+        )
     else:
         repo_path = repo_pairs[0][0] if repo_pairs[0][1] else (Path(repo) if repo else None)
         try:
@@ -520,7 +528,9 @@ def report(
 
     filtered_count = 0
     if multi:
-        tasks = _collect_multi_project(repo_pairs, effective, None, resolved_author)
+        tasks, filtered_count = _collect_multi_project(
+            repo_pairs, effective, None, resolved_author, do_filter=do_filter,
+        )
     else:
         repo_path = repo_pairs[0][0] if repo_pairs[0][1] else (Path(repo) if repo else None)
         try:
@@ -632,7 +642,9 @@ def week(
 
     filtered_count = 0
     if multi:
-        tasks = _collect_multi_project(repo_pairs, since, until, resolved_author)
+        tasks, filtered_count = _collect_multi_project(
+            repo_pairs, since, until, resolved_author, do_filter=do_filter,
+        )
     else:
         repo_path = repo_pairs[0][0] if repo_pairs[0][1] else (Path(repo) if repo else None)
         try:
@@ -731,7 +743,7 @@ def pr(
         typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
     ] = False,
 ) -> None:
-    """Generate a pull request summary from current branch.
+    """Generate a pull request summary. Best results with --local-llm or a configured API provider.
 
     \b
     Examples:
@@ -741,7 +753,8 @@ def pr(
       glimpse pr --context diffs
     """
     cfg = _load_or_onboard(skip_setup)
-    ctx_mode = context or cfg.context_mode
+    # PR defaults to "both" context for richer output, unless explicitly overridden.
+    ctx_mode = context or "both"
     do_filter = filter_noise if filter_noise is not None else cfg.filter_noise
 
     repo_path = Path(repo).resolve() if repo else None
@@ -819,6 +832,14 @@ def pr(
             format_pr_template(tasks, current_branch, base, ticket=ticket),
             highlight=False,
         )
+        # Show tip if no LLM is configured at all (not just unavailable this run).
+        if active_provider is None and cfg.default_mode == "template":
+            console.print()
+            console.print(
+                "[dim]Tip: PR summaries are richer with an LLM. "
+                "Try: glimpse pr --local-llm[/dim]",
+                highlight=False,
+            )
 
 
 # ---------------------------------------------------------------------------

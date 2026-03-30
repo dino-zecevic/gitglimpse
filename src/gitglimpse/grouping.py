@@ -164,10 +164,13 @@ def _best_summary(commits: list[Commit]) -> str:
     if not all_paths:
         return commits[-1].message if commits else "Various changes"
 
+    # Deduplicate paths (multiple commits may touch the same file).
+    unique_paths = list(dict.fromkeys(all_paths))
+
     # Collect top-level directories and bare filenames.
     dirs: list[str] = []
     bare_files: list[str] = []
-    for p in all_paths:
+    for p in unique_paths:
         parts = Path(p).parts
         if len(parts) > 1:
             dirs.append(parts[0])
@@ -175,7 +178,7 @@ def _best_summary(commits: list[Commit]) -> str:
             bare_files.append(p)
 
     # Attempt a semantic label from well-known path patterns.
-    label = _semantic_label(all_paths)
+    label = _semantic_label(unique_paths)
     if label:
         return label
 

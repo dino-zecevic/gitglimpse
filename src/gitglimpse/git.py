@@ -160,16 +160,27 @@ def _parse_raw_output(raw: str) -> list[Commit]:
     return commits
 
 
-def _clean_source_ref(ref: str) -> str:
-    """Turn a --source ref like 'refs/heads/main' into a clean branch name."""
+def _clean_source_ref(ref: str) -> str | None:
+    """Turn a --source ref like 'refs/heads/main' into a clean branch name.
+
+    Returns None for non-branch refs (stash, tags, notes, etc.) so they
+    can be skipped by the caller.
+    """
     ref = ref.strip()
     if ref.startswith("refs/heads/"):
         return ref[len("refs/heads/"):]
     if ref.startswith("refs/remotes/"):
-        return ref[len("refs/remotes/"):]
+        # Strip "refs/remotes/" then also the remote name (e.g. "origin/").
+        without_prefix = ref[len("refs/remotes/"):]
+        # "origin/main" → "main", "origin/feature/foo" → "feature/foo"
+        slash = without_prefix.find("/")
+        if slash != -1:
+            return without_prefix[slash + 1:]
+        return without_prefix
     if ref.startswith("refs/original/refs/heads/"):
         return ref[len("refs/original/refs/heads/"):]
-    return ref
+    # Skip stash, tags, notes, and other non-branch refs.
+    return None
 
 
 def _get_branch_map(git: str, cwd: Path) -> dict[str, str]:
@@ -194,7 +205,7 @@ def _get_branch_map(git: str, cwd: Path) -> dict[str, str]:
         if len(parts) == 2:
             commit_hash, source = parts
             branch = _clean_source_ref(source)
-            if branch and branch != "HEAD":
+            if branch is not None and branch != "HEAD":
                 result[commit_hash] = branch
     return result
 

@@ -44,46 +44,51 @@ def format_pr_template(
 
     # Header
     header = f"[bold yellow]PR Summary \u2014 {_escape(branch)} \u2192 {_escape(base)}[/bold yellow]"
-    lines: list[str] = [header, ""]
-
-    # Summary paragraph
-    lines.append("[bold]Summary[/bold]")
-    summaries = [t.summary for t in tasks]
-    lines.append(". ".join(summaries) + ".")
+    lines: list[str] = [header]
+    if ticket:
+        lines.append(f"[dim]Ticket: {_escape(ticket)}[/dim]")
     lines.append("")
 
-    # Changes
+    # Changes — per-commit detail with file names and diff stats.
     lines.append("[bold]Changes[/bold]")
+    seen_messages: set[str] = set()
     for task in tasks:
-        duration = format_duration(task.estimated_minutes)
-        ticket_part = f"{_escape(task.ticket)}, " if task.ticket else ""
-        lines.append(
-            f"  [yellow]\u2022[/yellow] {_escape(task.summary)}"
-            f"[dim] ({ticket_part}{duration})[/dim]"
-        )
+        for commit in task.commits:
+            if commit.is_merge or commit.message in seen_messages:
+                continue
+            seen_messages.add(commit.message)
+            file_names = ", ".join(
+                PurePosixPath(fc.path).name for fc in commit.files
+            )
+            ins = sum(fc.insertions for fc in commit.files)
+            dels = sum(fc.deletions for fc in commit.files)
+            diff_stat = f"+{ins} -{dels}" if (ins or dels) else ""
+            parts = [_escape(file_names)] if file_names else []
+            if diff_stat:
+                parts.append(diff_stat)
+            meta = f" ({', '.join(parts)})" if parts else ""
+            lines.append(
+                f"  [yellow]\u2022[/yellow] {_escape(commit.message)}"
+                f"[dim]{meta}[/dim]"
+            )
     lines.append("")
 
-    # Files changed
-    by_dir = _group_files_by_dir(tasks)
-    lines.append("[bold]Files changed[/bold]")
-    for dir_key in sorted(by_dir):
-        paths = sorted(by_dir[dir_key])
-        if dir_key:
-            lines.append(f"  [dim]{_escape(dir_key)}/[/dim]")
-            for p in paths:
-                lines.append(f"    {_escape(p)}")
-        else:
-            for p in paths:
-                lines.append(f"  {_escape(p)}")
-    lines.append("")
+    # Files changed — flat comma-separated list.
+    all_files = sorted({
+        fc.path for t in tasks for c in t.commits for fc in c.files
+    })
+    if all_files:
+        lines.append("[bold]Files changed[/bold]")
+        lines.append(f"  [dim]{', '.join(_escape(f) for f in all_files)}[/dim]")
+        lines.append("")
 
     # Stats
     lines.append("[bold]Stats[/bold]")
-    lines.append(f"  {total_commits} commit{'s' if total_commits != 1 else ''}")
-    lines.append(f"  [green]+{total_ins}[/green] / [red]-{total_del}[/red]")
+    lines.append(
+        f"  {total_commits} commit{'s' if total_commits != 1 else ''} "
+        f"[dim]\u00b7[/dim] [green]+{total_ins}[/green] / [red]-{total_del}[/red]"
+    )
     lines.append(f"  Estimated effort: [green]~{total_hours:.1f}h[/green]")
-    if ticket:
-        lines.append(f"  Ticket: [dim]{_escape(ticket)}[/dim]")
 
     return "\n".join(lines)
 
