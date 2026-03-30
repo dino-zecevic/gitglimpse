@@ -1,4 +1,4 @@
-"""Duration estimation from commit patterns."""
+"""Effort estimation from commit patterns."""
 
 from __future__ import annotations
 

@@ -324,6 +324,73 @@ def get_commit_diff(
     return "\n".join(diff_lines[:max_lines]) + f"\n... ({truncated} more lines)"
 
 
+def get_current_branch_name(repo_path: Path | None = None) -> str:
+    """Return the current branch name, or 'main' if detached."""
+    git = _git_bin()
+    cwd = Path(repo_path) if repo_path is not None else Path.cwd()
+    return _get_current_branch(git, cwd)
+
+
+def get_branch_commits(
+    repo_path: Path | None = None,
+    base: str = "main",
+) -> list[Commit]:
+    """Return commits on the current branch that are not on *base*.
+
+    Uses ``git log base..HEAD`` to find the range.  Returns newest-first.
+    Raises GitError if the base ref does not exist.
+    """
+    git = _git_bin()
+    cwd = Path(repo_path) if repo_path is not None else Path.cwd()
+
+    if not cwd.exists():
+        raise GitError(f"Path does not exist: {cwd}")
+
+    # Verify this is a git repository.
+    verify = subprocess.run(
+        [git, "rev-parse", "--git-dir"],
+        cwd=cwd, capture_output=True, text=True,
+    )
+    if verify.returncode != 0:
+        raise GitError(f"Not a git repository: {cwd}")
+
+    # Verify base ref exists.
+    ref_check = subprocess.run(
+        [git, "rev-parse", "--verify", base],
+        cwd=cwd, capture_output=True, text=True,
+    )
+    if ref_check.returncode != 0:
+        raise GitError(f"Base ref not found: {base}")
+
+    cmd = [
+        git, "log",
+        f"--pretty=format:{_LOG_FORMAT}",
+        "--numstat",
+        f"{base}..HEAD",
+    ]
+    raw = _run(cmd, cwd=cwd)
+    commits = _parse_raw_output(raw)
+
+    # Enrich branch info.
+    fallback_branch = _get_current_branch(git, cwd)
+    enriched: list[Commit] = []
+    for c in commits:
+        if not c.branches:
+            c = Commit(
+                hash=c.hash,
+                author_email=c.author_email,
+                message=c.message,
+                timestamp=c.timestamp,
+                branches=[fallback_branch],
+                files=c.files,
+                is_merge=c.is_merge,
+            )
+        enriched.append(c)
+
+    enriched.sort(key=lambda c: c.timestamp, reverse=True)
+    return enriched
+
+
 def get_current_author_email(repo_path: Path | None = None) -> str:
     """Return the configured git user.email for the repo.
 

@@ -74,6 +74,16 @@ class BaseLLMProvider(ABC):
     ) -> str | None:
         """Return a formatted weekly summary with key themes, or None on failure."""
 
+    @abstractmethod
+    def summarize_pr(
+        self,
+        tasks: list[Task],
+        branch: str,
+        base: str,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str | None:
+        """Return a formatted PR summary, or None on failure."""
+
     # ------------------------------------------------------------------
     # Shared helpers
     # ------------------------------------------------------------------
@@ -83,7 +93,7 @@ class BaseLLMProvider(ABC):
         "Standup — [date]\n\n"
         "[day label]:\n"
         "  • [one line describing what was done] ([branch], ~[time]h)\n\n"
-        "Total estimated time: [total]h\n\n"
+        "Estimated effort: [total]h\n\n"
         "STRICT RULES:\n"
         "- Use ONLY bullet points with •\n"
         "- One bullet per task, one line each, under 100 characters\n"
@@ -126,6 +136,13 @@ class BaseLLMProvider(ABC):
         "End with week total. No suggestions, no reviews, no commentary."
     )
 
+    _PR_PROMPT = (
+        "Generate a pull request summary. Describe what this branch does "
+        "in one paragraph, then list the key changes as bullets. Be specific "
+        "about what was changed and why. No suggestions, no code review, "
+        "no questions. Only describe completed work."
+    )
+
     @classmethod
     def _context_addendum(cls, context_mode: str) -> str:
         if context_mode == "diffs":
@@ -148,6 +165,54 @@ class BaseLLMProvider(ABC):
     def get_week_system_prompt(cls, context_mode: str = "commits") -> str:
         """Return system prompt for weekly summary generation."""
         return cls._WEEK_PROMPT + cls._context_addendum(context_mode)
+
+    @classmethod
+    def get_pr_system_prompt(cls, context_mode: str = "commits") -> str:
+        """Return system prompt for PR summary generation."""
+        return cls._PR_PROMPT + cls._context_addendum(context_mode)
+
+    @staticmethod
+    def _format_pr_context(
+        tasks: list[Task],
+        branch: str,
+        base: str,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str:
+        """Serialise PR tasks into a context block for the LLM."""
+        from gitglimpse.grouping import is_vague_message
+
+        lines = [
+            f"Branch: {branch}",
+            f"Base: {base}",
+            f"Tasks: {len(tasks)}",
+            f"Estimated effort: {sum(t.estimated_minutes for t in tasks) / 60:.1f}h",
+            "",
+        ]
+        all_files = sorted({fc.path for t in tasks for c in t.commits for fc in c.files})
+        if all_files:
+            lines.append(f"Files changed: {', '.join(all_files)}")
+            lines.append("")
+
+        for i, task in enumerate(tasks, 1):
+            lines.append(f"Task {i}: {task.summary}")
+            lines.append(f"  Branch: {task.branch}")
+            lines.append(f"  Commits: {len(task.commits)}")
+            lines.append(f"  +{task.insertions} insertions, \u2212{task.deletions} deletions")
+            lines.append(f"  Estimated: {task.estimated_minutes} minutes")
+            messages = [c.message for c in task.commits if not c.is_merge]
+            if messages:
+                lines.append("  Commit messages:")
+                for msg in messages:
+                    lines.append(f"    - {msg}")
+            if diff_snippets:
+                for commit in task.commits:
+                    if commit.hash in diff_snippets and is_vague_message(commit.message):
+                        lines.append(f"  Diff for '{commit.message}':")
+                        for dl in diff_snippets[commit.hash].splitlines():
+                            lines.append(f"    {dl}")
+            lines.append("")
+
+        return "\n".join(lines)
 
     @staticmethod
     def _format_tasks_context(
@@ -208,7 +273,7 @@ class BaseLLMProvider(ABC):
         lines = [
             f"Period: {start_str} to {end_str}",
             f"Total tasks: {len(tasks)}",
-            f"Total estimated time: {sum(t.estimated_minutes for t in tasks) / 60:.1f}h",
+            f"Estimated effort: {sum(t.estimated_minutes for t in tasks) / 60:.1f}h",
             "",
         ]
         if len(projects) > 1:
@@ -294,7 +359,7 @@ class BaseLLMProvider(ABC):
         lines = [
             f"Period: {start_str} to {end_str}",
             f"Total tasks: {len(tasks)}",
-            f"Total estimated time: {sum(t.estimated_minutes for t in tasks) / 60:.1f}h",
+            f"Estimated effort: {sum(t.estimated_minutes for t in tasks) / 60:.1f}h",
             "",
         ]
 
