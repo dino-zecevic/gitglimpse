@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gitglimpse"
-version = "0.1.2"
+version = "0.1.3"
 description = "Analyze git history and generate standup updates, daily reports, and weekly summaries."
 authors = [{ name = "Dino" }]
 license = { text = "MIT" }
