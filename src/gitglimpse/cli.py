@@ -731,7 +731,7 @@ def pr(
         typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
     ] = False,
 ) -> None:
-    """Generate a pull request summary from current branch.
+    """Generate a pull request summary. Best results with --local-llm or a configured API provider.
 
     \b
     Examples:
@@ -741,7 +741,8 @@ def pr(
       glimpse pr --context diffs
     """
     cfg = _load_or_onboard(skip_setup)
-    ctx_mode = context or cfg.context_mode
+    # PR defaults to "both" context for richer output, unless explicitly overridden.
+    ctx_mode = context or "both"
     do_filter = filter_noise if filter_noise is not None else cfg.filter_noise
 
     repo_path = Path(repo).resolve() if repo else None
@@ -819,6 +820,14 @@ def pr(
             format_pr_template(tasks, current_branch, base, ticket=ticket),
             highlight=False,
         )
+        # Show tip if no LLM is configured at all (not just unavailable this run).
+        if active_provider is None and cfg.default_mode == "template":
+            console.print()
+            console.print(
+                "[dim]Tip: PR summaries are richer with an LLM. "
+                "Try: glimpse pr --local-llm[/dim]",
+                highlight=False,
+            )
 
 
 # ---------------------------------------------------------------------------

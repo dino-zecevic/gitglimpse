@@ -146,6 +146,12 @@ glimpse config setup            # interactive setup wizard
 
 Template mode is instant and fully offline. LLM modes send commit context to a model for polished output. JSON mode outputs structured data for use with Claude Code or any LLM workflow.
 
+### Template vs LLM output
+
+Template mode reads your commit messages and file change patterns to generate structured output. It's instant and works offline — perfect for quick standups and weekly summaries.
+
+LLM mode (local or cloud) also reads your actual code diffs. This means it can write accurate summaries even when commit messages are vague, and it can synthesize multiple commits into coherent narratives. PR summaries especially benefit from LLM mode — the model reads every line of changed code and describes what the branch actually does.
+
 ---
 
 ## Claude Code Integration
