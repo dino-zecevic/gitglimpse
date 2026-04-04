@@ -3,7 +3,7 @@ Generate a pull request summary from your current branch.
 Run the following shell command and capture its output:
 
 ```
-glimpse pr --json --context commits
+glimpse pr --json --context both
 ```
 
 Then format the JSON result into a clean PR description using this structure:

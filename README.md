@@ -4,27 +4,40 @@
 
 # gitglimpse
 
-**Turn your git history into standup updates, PR summaries, and structured context for AI tools.**
+**Turn messy git history into clean, structured context — for humans and AI.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-F59E0B)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
-[Quick Start](#quick-start) · [Commands](#commands) · [Modes](#modes) · [Smart Defaults](#smart-defaults) · [Claude Code](#claude-code-integration) · [Configuration](#configuration)
-
 <br>
-
-<img src="docs/demo-standup.gif" alt="glimpse standup demo" width="800">
 
 </div>
 
 ---
 
-gitglimpse reads your `git log`, groups commits into logical tasks, estimates effort based on commit patterns, and formats everything as a standup, a report, or a weekly digest. Optionally, hand that context to an LLM — local or cloud — for a polished write-up.
+## Why gitglimpse?
 
-> **Your AI writes the code. gitglimpse writes the standup.**
+Modern development (especially with AI) creates **more changes across more files than ever**.
 
-This is a tool for developers, not managers. No dashboards. No team tracking. No analytics. Just a fast way to remember and communicate what you worked on.
+Git tracks *what changed* — but not in a way that's easy to understand quickly.
+
+gitglimpse bridges that gap.
+
+It turns raw git history into:
+
+- 🧠 **Structured context (JSON)** for LLMs and tools  
+- 📝 **Standups & reports** for humans  
+- 🔍 **Clean summaries** without opening diffs or PRs  
+
+> Think of it as a **context extraction layer for your codebase**.
+
+---
+
+## ✨ Demo
+
+<!-- TODO: Replace with real GIF -->
+![Standup Demo](docs/demo-standup.gif)
 
 ---
 
@@ -34,271 +47,290 @@ This is a tool for developers, not managers. No dashboards. No team tracking. No
 pip install gitglimpse
 cd your-project
 glimpse standup
-```
+````
 
-First run walks you through a one-time setup. After that, every command uses your saved preferences.
+That’s it. No API keys, no setup required.
 
 ---
 
-## Commands
+## Core Idea
+
+gitglimpse is not just a “standup generator”.
+
+It’s a **Git → Structured Context engine**.
+
+```bash
+glimpse standup --json | your-llm
+```
+
+Instead of dumping raw diffs into an LLM, you give it:
+
+* grouped tasks
+* extracted tickets
+* filtered noise
+* optional diffs
+* structured JSON
+
+---
+
+## 🚀 Commands
 
 ### `glimpse standup`
 
-Generate a standup update from recent commits.
+Generate a daily summary or structured context.
 
 ```bash
-glimpse standup                        # template output, no LLM needed
-glimpse standup --json                 # structured JSON for piping to Claude Code
-glimpse standup --local-llm            # polish with a local Ollama model
-glimpse standup --since "3 days ago"   # custom time range
-glimpse standup --context both         # send commits + diffs for richer output
+glimpse standup
+glimpse standup --json
+glimpse standup --since "3 days ago"
+glimpse standup --format markdown
 ```
 
-```
-Standup — March 28, 2026
+Example:
 
+```
 Yesterday:
-  • Implemented JWT refresh logic (feat/auth, ~2.5h)
-  • Fixed pagination bug in orders endpoint (~0.5h)
+  • Add rate limiting middleware (AUTH-42, ~1.5h)
+  • Fix pagination bug (BUG-87, ~1h)
 
-Estimated effort: 3.0h
+Estimated effort: 2.5h
 ```
 
-### `glimpse report`
-
-Daily Markdown report with file-level detail — good for engineering journals or async updates.
-
-```bash
-glimpse report                  # print to terminal
-glimpse report -o daily.md      # save to file
-```
+---
 
 ### `glimpse week`
 
-Weekly digest grouped by day, with totals.
+Weekly breakdown grouped by day.
 
 ```bash
-glimpse week                    # last 7 days
-glimpse week --json             # structured output
-glimpse week --since "14 days ago" --until "7 days ago"
+glimpse week
+glimpse week --json
 ```
+
+---
 
 ### `glimpse pr`
 
-Generate a pull request summary from your current branch.
+Generate PR summaries from your branch.
 
 ```bash
-glimpse pr                    # summary comparing current branch to main
-glimpse pr --base develop     # compare against develop instead
-glimpse pr --json             # structured output
+glimpse pr
+glimpse pr --json
 ```
 
-```
-PR Summary — feature/PROJ-123-auth → main
-
-Summary
-Implemented JWT auth middleware and login endpoint.
-
-Changes
-  • Implemented JWT auth middleware (PROJ-123, ~2h)
-  • Added login endpoint with tests (PROJ-123, ~1h)
-
-Files changed
-  src/
-    src/auth.py
-    src/middleware.py
-  tests/
-    tests/test_auth.py
-
-Stats
-  4 commits
-  +182 / -12
-  Estimated effort: ~3h
-  Ticket: PROJ-123
-```
+---
 
 ### `glimpse init`
 
-Generate Claude Code slash commands for your repo.
+Install Claude Code / Cursor slash commands.
 
 ```bash
-glimpse init                    # creates .claude/commands/{standup,report,week}.md
-glimpse init --cursor           # also creates .cursor/commands/
+glimpse init
 ```
 
-### `glimpse config`
+Then in your editor:
 
-```bash
-glimpse config show             # display current settings
-glimpse config setup            # interactive setup wizard
+```
+/standup
+/pr
+/week
 ```
 
 ---
 
-## Modes
+## 🧩 Output Modes
 
-| Mode | Activate with | Requires |
-|------|--------------|----------|
-| **Template** | default | nothing — works offline |
-| **Local LLM** | `--local-llm` or config | [Ollama](https://ollama.com) running locally |
-| **Cloud API** | config setup | API key (OpenAI, Anthropic, or Gemini) |
-| **JSON** | `--json` | nothing — designed for Claude Code / Cursor |
-
-Template mode is instant and fully offline. LLM modes send commit context to a model for polished output. JSON mode outputs structured data for use with Claude Code or any LLM workflow.
-
-### Template vs LLM output
-
-Template mode reads your commit messages and file change patterns to generate structured output. It's instant and works offline — perfect for quick standups and weekly summaries.
-
-LLM mode (local or cloud) also reads your actual code diffs. This means it can write accurate summaries even when commit messages are vague, and it can synthesize multiple commits into coherent narratives. PR summaries especially benefit from LLM mode — the model reads every line of changed code and describes what the branch actually does.
+| Mode          | Description                     |
+| ------------- | ------------------------------- |
+| **Template**  | Fast, deterministic, no LLM     |
+| **Local LLM** | Uses Ollama (privacy-first)     |
+| **Cloud API** | OpenAI / Anthropic / Gemini     |
+| **JSON**      | Structured output for pipelines |
 
 ---
 
-## Claude Code Integration
+## 🔥 What Makes It Different
 
-This is where gitglimpse really shines. One slash command, instant standup.
+### 1. Noise Filtering (by default)
 
-**Setup:**
+Removes:
+
+* merge commits
+* lock files
+* formatting changes
+
+So you only see meaningful work.
+
+---
+
+### 2. Task Grouping
+
+Commits → grouped into **real tasks**:
+
+```
+3 commits → 1 task
+```
+
+---
+
+### 3. Ticket Extraction
+
+Automatically parses:
+
+```
+feature/AUTH-42-login → AUTH-42
+```
+
+---
+
+### 4. Works Without LLMs
+
+No AI required.
+
+* Good commits → good summaries
+* Bad commits → fallback heuristics
+* LLM → optional enhancement
+
+---
+
+### 5. Built for LLM Workflows
+
+Instead of:
 
 ```bash
-cd your-project
+git diff | llm
+```
+
+You do:
+
+```bash
+glimpse standup --json | llm
+```
+
+Cleaner input → better output.
+
+---
+
+## 🤖 Claude Code Integration
+
+<!-- TODO: Add GIF showing /standup usage -->
+
+```bash
 glimpse init
 git add .claude/commands/
-git commit -m "chore: add glimpse slash commands"
+git commit -m "add glimpse commands"
 ```
 
-**Usage in Claude Code:**
+Now every dev on your team gets:
 
 ```
-> /standup
+/standup
+/pr
+/week
 ```
 
-Claude Code reads the command file, runs `glimpse standup --json`, and formats a clean standup right in your terminal. No copy-pasting, no context switching.
-
-**Why this matters for teams:** commit the `.claude/commands/` files to your repo. Every developer who pulls the code gets `/standup`, `/report`, and `/week` automatically. They install gitglimpse once and it just works. The repo itself becomes the distribution channel.
+📌 The repo becomes the distribution channel.
 
 ---
 
-## Multi-Project Support
+## 🧠 Multi-Project Mode
 
-Run from a parent directory that contains multiple repos and gitglimpse aggregates everything.
-
-<div align="center">
-<img src="docs/demo-multi.gif" alt="Multi-project standup demo" width="800">
-</div>
-
-```
-~/Projects/
-  ├── api/
-  ├── frontend/
-  └── landing/
-```
+Run from a parent folder:
 
 ```bash
-cd ~/Projects
+cd ~/projects
 glimpse standup
 ```
 
-Use `--group task` for a flat list or `--group project` (default) for per-project grouping. Target specific repos with `--repos "api,frontend"`.
+gitglimpse will:
+
+* detect repos automatically
+* merge timelines
+* group by project or task
+
+<!-- TODO: Add multi-project GIF -->
 
 ---
 
-## The `--context` Flag
-
-Controls how much detail goes into LLM summaries and JSON output.
-
-| Value | What's sent | Best for |
-|-------|------------|----------|
-| `commits` | Commit messages only | Descriptive commit messages |
-| `diffs` | Code diffs only | Vague or lazy commit messages |
-| `both` | Messages + diffs | Maximum accuracy |
+## ⚙️ Configuration
 
 ```bash
-glimpse standup --context both --local-llm
+glimpse config setup
 ```
 
----
+Stored in:
 
-## Smart Defaults
-
-**Noise filtering** is on by default — merge commits, lock file updates, and formatting changes are automatically excluded. Use `--no-filter-noise` to see everything.
-
-**Ticket extraction** — branch names like `feature/PROJ-123-auth` are automatically parsed. Ticket IDs appear in your output alongside task summaries.
-
-**Weekday-aware lookback** — on Monday, `glimpse standup` automatically looks back to Friday. No flags needed.
-
----
-
-## Configuration
-
-First run triggers an interactive setup. Change settings anytime with `glimpse config setup`.
-
-Config is stored at `~/.config/gitglimpse/config.toml` (macOS/Linux) or `%APPDATA%\gitglimpse\config.toml` (Windows).
-
-```toml
-default_mode = "local-llm"
-llm_provider = "local"
-llm_model = "qwen2.5-coder:latest"
-local_llm_url = "http://localhost:11434/v1"
-author_email = "you@example.com"
-context_mode = "commits"
-group_by = "project"
+```
+~/.config/gitglimpse/config.toml
 ```
 
-**API keys are never stored in the config file.** They're read from environment variables at runtime. During setup, gitglimpse can add the export line to your shell config.
+Supports:
 
-CLI flags always override config values.
-
----
-
-## How It Works
-
-**Commit parsing** → reads `git log --pretty --numstat` for commits, file changes, branches, and timestamps.
-
-**Task grouping** → clusters commits by branch and time proximity (3-hour gap = new task). Picks the most meaningful commit message as the summary. When messages are vague ("fix", "wip", "asdf"), infers meaning from file paths and change patterns.
-
-**Effort estimation** → analyzes gaps between commits. Continuous work (gap < 2h) counts actual time. Breaks (gap > 2h) cap at 45 minutes. First commit assumes 30 minutes of prior work. Large changes get a 1.2× multiplier. These are rough approximations based on commit timing, not precise time tracking.
-
-**Formatting** → template mode formats directly. LLM mode sends structured context (and optionally diffs) to the model. JSON mode outputs clean data for external tools. LLM output is validated — if a model goes off-script, it falls back to template automatically.
-
----
-
-## Requirements
-
-- Python 3.11+
-- git
-
-**Optional:**
-
-- [Ollama](https://ollama.com) for local LLM mode
-- An API key for cloud LLM mode (OpenAI, Anthropic, or Gemini)
+* local models (Ollama)
+* cloud APIs
+* context modes (`commits`, `diffs`, `both`)
 
 ---
 
 ## Philosophy
 
-- **Privacy-first** — works fully offline, no telemetry, no tracking
-- **Developer tool, not a manager tool** — helps you communicate your own work
-- **LLM-optional** — useful without any AI, better with it
-- **No vendor lock-in** — bring your own model, key, or use none at all
-- **Structured output** — every command supports `--json`, making gitglimpse a building block for your own tools and workflows
+* **Privacy-first** — works fully offline
+* **LLM-optional** — useful without AI
+* **Developer-first** — not a manager tool
+* **Composable** — JSON output for pipelines
+* **Honest** — no fake precision (effort is approximate)
+
+---
+
+## When It’s Actually Useful
+
+* Weekly summaries across repos
+* PR descriptions
+* Feeding context into coding agents
+* Remembering what you did yesterday
+
+---
+
+## ⚠️ Limitations
+
+* Only sees **code changes** (not meetings, docs, etc.)
+* Effort estimation is **heuristic, not accurate**
+* Depends on git history quality
+
+---
+
+## Installation
+
+```bash
+pip install gitglimpse
+```
+
+Requirements:
+
+* Python 3.11+
+* git
+* (optional) Ollama or API key
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and guidelines.
+PRs welcome — especially for:
+
+* better effort estimation
+* smarter task grouping
+* improved noise filtering
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT
 
 ---
 
 <div align="center">
 
-Built by [Dino](https://dinoze.dev)
+Built by Dino
 
 </div>

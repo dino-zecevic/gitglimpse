@@ -3,7 +3,7 @@ Generate a standup update from your recent git commits.
 Run the following shell command and capture its output:
 
 ```
-glimpse standup --json --context commits
+glimpse standup --json --context both
 ```
 
 Then format the JSON result into a clean standup update using **exactly** this structure:
