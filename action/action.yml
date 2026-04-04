@@ -34,6 +34,11 @@ runs:
       shell: bash
       run: pip install "gitglimpse[llm]"
 
+    - name: Fetch base branch
+      shell: bash
+      run: |
+        git fetch origin "${{ inputs.base-branch }}":"${{ inputs.base-branch }}" 2>/dev/null || true
+
     - name: Generate PR context
       shell: bash
       run: |
