@@ -5,15 +5,22 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-import httpx
-
 from gitglimpse.providers.base import BaseLLMProvider, _warn, validate_llm_output
 
 if TYPE_CHECKING:
     from gitglimpse.grouping import Task
 
 _API_URL = "https://api.openai.com/v1/chat/completions"
-_TIMEOUT = httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)
+
+_HTTPX_INSTALL_HINT = "httpx is required for LLM features. Install with: pip install 'gitglimpse[llm]'"
+
+
+def _import_httpx():
+    try:
+        import httpx
+        return httpx
+    except ImportError:
+        raise ImportError(_HTTPX_INSTALL_HINT)
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -25,6 +32,7 @@ class OpenAIProvider(BaseLLMProvider):
         self.context_mode = context_mode
 
     def _chat(self, user_message: str, system_prompt: str | None = None) -> str | None:
+        httpx = _import_httpx()
         if system_prompt is None:
             system_prompt = self.get_system_prompt()
         headers = {
@@ -38,9 +46,10 @@ class OpenAIProvider(BaseLLMProvider):
                 {"role": "user", "content": user_message},
             ],
         }
+        _timeout = httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)
         try:
             with _warn.status(f"[dim]Generating with {self.model}...[/dim]"):
-                resp = httpx.post(_API_URL, json=payload, headers=headers, timeout=_TIMEOUT)
+                resp = httpx.post(_API_URL, json=payload, headers=headers, timeout=_timeout)
             if resp.status_code == 401:
                 _warn.print("[yellow]⚠ OpenAI: invalid API key.[/yellow]")
                 return None

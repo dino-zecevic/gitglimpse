@@ -3,7 +3,7 @@ Generate a detailed daily report from your git commits.
 Run the following shell command and capture its output:
 
 ```
-glimpse standup --json
+glimpse standup --json --context both
 ```
 
 Then format the JSON result into a **Markdown daily report** using this structure:

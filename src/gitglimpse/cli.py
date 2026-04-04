@@ -18,7 +18,6 @@ from gitglimpse.formatters.template import format_standup, format_week_template
 from gitglimpse.git import GitError, get_branch_commits, get_commit_diff, get_commits, get_current_branch_name
 from gitglimpse.grouping import filter_noise_commits, group_commits_into_tasks, is_vague_message
 from gitglimpse.providers import get_provider
-from gitglimpse.providers.local import LocalProvider
 
 app = typer.Typer(
     name="glimpse",
@@ -50,6 +49,7 @@ def _app_callback(
     """Analyze git history and generate standup updates, reports, and summaries."""
 
 console = Console()
+_stderr_console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -214,7 +214,7 @@ def _resolve_repo_paths(
         raise typer.Exit(1)
 
     names = ", ".join(r.name for r in repos)
-    console.print(f"[dim]Found {len(repos)} projects: {names}[/dim]", highlight=False)
+    _stderr_console.print(f"[dim]Found {len(repos)} projects: {names}[/dim]", highlight=False)
     return [(r, r.name) for r in repos]
 
 
@@ -275,6 +275,7 @@ def _print_status_line(
         ctx_mode: str = "commits",
 ) -> None:
     """Print a one-line dim status showing author, context, and active model."""
+    from gitglimpse.providers.local import LocalProvider
     from gitglimpse.providers.openai import OpenAIProvider
     from gitglimpse.providers.claude import ClaudeProvider
     from gitglimpse.providers.gemini import GeminiProvider
@@ -314,6 +315,8 @@ def _resolve_provider(
       2. config default_mode == local-llm / api → get_provider()
       3. anything else → None (template fallback)
     """
+    from gitglimpse.providers.local import LocalProvider
+
     if use_local:
         url = local_url_override or cfg.local_llm_url
         model = model_override or cfg.llm_model or None
@@ -370,6 +373,14 @@ def standup(
             typer.Option("--filter-noise/--no-filter-noise",
                          help="Filter out noise commits (merges, formatting, lock files)."),
         ] = None,
+        fmt: Annotated[
+            Optional[str],
+            typer.Option("--format", help="Output format: 'default' (Rich) or 'markdown'."),
+        ] = None,
+        output: Annotated[
+            Optional[str],
+            typer.Option("--output", "-o", help="Save output to file instead of printing."),
+        ] = None,
         skip_setup: Annotated[
             bool,
             typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
@@ -382,7 +393,7 @@ def standup(
       glimpse standup
       glimpse standup --since "2 days ago"
       glimpse standup --json
-      glimpse standup --context diffs
+      glimpse standup --format markdown -o daily.md
       glimpse standup --repos "api,frontend,landing"
     """
     cfg = _load_or_onboard(skip_setup)
@@ -439,6 +450,8 @@ def standup(
         print(json_str)
         return
 
+    use_markdown = fmt and fmt.lower() == "markdown"
+
     if filtered_count > 0:
         console.print(f"[dim]Filtered {filtered_count} noise commits (merges, formatting, dependencies)[/dim]",
                       highlight=False)
@@ -446,6 +459,7 @@ def standup(
     active_provider: object | None = None
     llm_output: str | None = None
     if not no_llm:
+        from gitglimpse.providers.local import LocalProvider
         provider = _resolve_provider(cfg, local_llm, local_llm_url, model, context_mode=ctx_mode)
         if provider is not None:
             if isinstance(provider, LocalProvider) and not provider.is_available():
@@ -455,131 +469,28 @@ def standup(
                     )
             else:
                 active_provider = provider
-                llm_output = provider.summarize_standup(tasks, report_date, diff_snippets)
+                if use_markdown:
+                    llm_output = provider.summarize_report(tasks, report_date, diff_snippets)
+                else:
+                    llm_output = provider.summarize_standup(tasks, report_date, diff_snippets)
 
     _print_status_line(resolved_author, active_provider, ctx_mode)
-    if llm_output:
-        console.print(llm_output, markup=False, highlight=False)
+
+    if use_markdown:
+        md = llm_output if llm_output else format_report(tasks, report_date)
+        if output:
+            Path(output).write_text(md, encoding="utf-8")
+            console.print(f"Report saved to [bold]{output}[/bold]")
+        else:
+            console.print(md, markup=False, highlight=False)
     else:
-        console.print(
-            format_standup(tasks, report_date, group_by=group_by if multi else "project"),
-            highlight=False,
-        )
-
-
-# ---------------------------------------------------------------------------
-# report
-# ---------------------------------------------------------------------------
-
-@app.command()
-def report(
-        no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use Markdown formatter.")] = False,
-        local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
-        local_llm_url: Annotated[
-            Optional[str],
-            typer.Option("--local-llm-url", help="Override local LLM base URL."),
-        ] = None,
-        model: Annotated[
-            Optional[str],
-            typer.Option("--model", help="LLM model to use (e.g. qwen2.5-coder:latest)."),
-        ] = None,
-        since: Annotated[
-            str, typer.Option("--since", help="Show commits since this date or period.")] = _SENTINEL_SINCE,
-        author: Annotated[
-            Optional[str],
-            typer.Option("--author", help="Filter by author email."),
-        ] = None,
-        repo: Annotated[
-            Optional[str],
-            typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
-        ] = None,
-        repos: Annotated[
-            Optional[str],
-            typer.Option("--repos", help="Comma-separated list of repo paths for multi-project mode."),
-        ] = None,
-        output: Annotated[
-            Optional[str],
-            typer.Option("--output", "-o", help="Save report to this file instead of printing."),
-        ] = None,
-        context: Annotated[
-            Optional[str],
-            typer.Option("--context", help="LLM context: 'commits', 'diffs', or 'both'."),
-        ] = None,
-        filter_noise: Annotated[
-            Optional[bool],
-            typer.Option("--filter-noise/--no-filter-noise",
-                         help="Filter out noise commits (merges, formatting, lock files)."),
-        ] = None,
-        skip_setup: Annotated[
-            bool,
-            typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
-        ] = False,
-) -> None:
-    """Generate a daily Markdown report from git commits.
-
-    \b
-    Examples:
-      glimpse report
-      glimpse report -o daily.md
-      glimpse report --since 2025-03-01
-    """
-    cfg = _load_or_onboard(skip_setup)
-    effective = _effective_since(since, cfg.default_since)
-    ctx_mode = context or cfg.context_mode
-    resolved_author = _resolve_author(author, cfg.author_email)
-    do_filter = filter_noise if filter_noise is not None else cfg.filter_noise
-
-    repo_pairs = _resolve_repo_paths(repo, repos)
-    multi = len(repo_pairs) > 1
-
-    filtered_count = 0
-    if multi:
-        tasks, filtered_count = _collect_multi_project(
-            repo_pairs, effective, None, resolved_author, do_filter=do_filter,
-        )
-    else:
-        repo_path = repo_pairs[0][0] if repo_pairs[0][1] else (Path(repo) if repo else None)
-        try:
-            commits = get_commits(repo_path=repo_path, since=effective, author=resolved_author)
-        except GitError as exc:
-            console.print(f"[bold red]Error:[/bold red] {exc}")
-            raise typer.Exit(1)
-        if do_filter:
-            original_count = len(commits)
-            commits = filter_noise_commits(commits)
-            filtered_count = original_count - len(commits)
-        tasks = group_commits_into_tasks(commits)
-
-    report_date = _report_date(effective)
-
-    if filtered_count > 0:
-        console.print(f"[dim]Filtered {filtered_count} noise commits (merges, formatting, dependencies)[/dim]",
-                      highlight=False)
-
-    active_provider: object | None = None
-    llm_output: str | None = None
-    if not no_llm:
-        provider = _resolve_provider(cfg, local_llm, local_llm_url, model, context_mode=ctx_mode)
-        if provider is not None:
-            if isinstance(provider, LocalProvider) and not provider.is_available():
-                if local_llm:
-                    console.print(
-                        "[yellow]⚠ Local LLM not reachable — falling back to Markdown formatter.[/yellow]"
-                    )
-            else:
-                diff_snippets = _collect_diff_snippets(tasks, None, all_commits=True) if ctx_mode in ("diffs",
-                                                                                                      "both") else None
-                active_provider = provider
-                llm_output = provider.summarize_report(tasks, report_date, diff_snippets)
-
-    md = llm_output if llm_output else format_report(tasks, report_date)
-
-    _print_status_line(resolved_author, active_provider, ctx_mode)
-    if output:
-        Path(output).write_text(md, encoding="utf-8")
-        console.print(f"Report saved to [bold]{output}[/bold]")
-    else:
-        console.print(md, markup=False, highlight=False)
+        if llm_output:
+            console.print(llm_output, markup=False, highlight=False)
+        else:
+            console.print(
+                format_standup(tasks, report_date, group_by=group_by if multi else "project"),
+                highlight=False,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -694,6 +605,7 @@ def week(
     active_provider: object | None = None
     llm_output: str | None = None
     if not no_llm:
+        from gitglimpse.providers.local import LocalProvider
         provider = _resolve_provider(cfg, local_llm, local_llm_url, model, context_mode=ctx_mode)
         if provider is not None:
             if isinstance(provider, LocalProvider) and not provider.is_available():
@@ -825,6 +737,7 @@ def pr(
     active_provider: object | None = None
     llm_output: str | None = None
     if not no_llm:
+        from gitglimpse.providers.local import LocalProvider
         provider = _resolve_provider(cfg, local_llm, local_llm_url, model, context_mode=ctx_mode)
         if provider is not None:
             if isinstance(provider, LocalProvider) and not provider.is_available():
@@ -951,12 +864,6 @@ def init(
     """
     root = Path(repo) if repo else Path.cwd()
 
-    try:
-        cfg = load_config()
-        context_mode = cfg.context_mode
-    except Exception:
-        context_mode = "commits"
-
     targets: list[tuple[Path, str]] = [
         (root / ".claude" / "commands", "Claude Code"),
     ]
@@ -965,8 +872,6 @@ def init(
 
     created: list[Path] = []
     skipped: list[Path] = []
-
-    console.print(f"[dim]Context mode: {context_mode}  (change with: glimpse config setup)[/dim]")
 
     for commands_dir, tool_name in targets:
         console.print(f"\n[bold]{tool_name}[/bold] → {commands_dir}")
@@ -977,16 +882,6 @@ def init(
             except Exception as exc:
                 console.print(f"  [red]Could not read template {name}: {exc}[/red]")
                 continue
-            content = content.replace(
-                "glimpse standup --json",
-                f"glimpse standup --json --context {context_mode}",
-            ).replace(
-                "glimpse week --json",
-                f"glimpse week --json --context {context_mode}",
-            ).replace(
-                "glimpse pr --json",
-                f"glimpse pr --json --context {context_mode}",
-            )
             written = _write_command_file(dest, content, force=force, dry_run=False)
             if written:
                 console.print(f"  [green]✓[/green] Created {dest.relative_to(root)}")
@@ -996,9 +891,14 @@ def init(
 
     console.print()
     if created:
+        commands_dir = created[0].parent
         console.print(
             f"[bold green]Done.[/bold green] "
             f"Created {len(created)} file{'s' if len(created) != 1 else ''}."
+        )
+        console.print(
+            f"[dim]Commands use --context both for maximum LLM context. "
+            f"Edit the files in {commands_dir.relative_to(root)}/ to change this.[/dim]"
         )
     else:
         console.print("[yellow]No files were created.[/yellow]")

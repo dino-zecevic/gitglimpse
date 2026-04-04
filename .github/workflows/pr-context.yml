@@ -1,0 +1,20 @@
+name: PR Context
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  context:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+      - run: git fetch origin main:main
+      - uses: ./action
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -3,7 +3,7 @@ Generate a weekly summary of your git activity.
 Run the following shell command and capture its output:
 
 ```
-glimpse week --json
+glimpse week --json --context both
 ```
 
 Then format the JSON result into a **weekly summary** using this structure:
