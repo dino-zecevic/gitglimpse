@@ -5,15 +5,22 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-import httpx
-
 from gitglimpse.providers.base import BaseLLMProvider, _warn, validate_llm_output
 
 if TYPE_CHECKING:
     from gitglimpse.grouping import Task
 
 _API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-_TIMEOUT = httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)
+
+_HTTPX_INSTALL_HINT = "httpx is required for LLM features. Install with: pip install 'gitglimpse[llm]'"
+
+
+def _import_httpx():
+    try:
+        import httpx
+        return httpx
+    except ImportError:
+        raise ImportError(_HTTPX_INSTALL_HINT)
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -25,6 +32,7 @@ class GeminiProvider(BaseLLMProvider):
         self.context_mode = context_mode
 
     def _chat(self, user_message: str, system_prompt: str | None = None) -> str | None:
+        httpx = _import_httpx()
         if system_prompt is None:
             system_prompt = self.get_system_prompt()
         url = f"{_API_BASE}/{self.model}:generateContent?key={self.api_key}"
@@ -36,9 +44,10 @@ class GeminiProvider(BaseLLMProvider):
                 {"parts": [{"text": user_message}]}
             ],
         }
+        _timeout = httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)
         try:
             with _warn.status(f"[dim]Generating with {self.model}...[/dim]"):
-                resp = httpx.post(url, json=payload, timeout=_TIMEOUT)
+                resp = httpx.post(url, json=payload, timeout=_timeout)
             if resp.status_code == 400:
                 _warn.print("[yellow]⚠ Gemini: bad request (check API key or model name).[/yellow]")
                 return None

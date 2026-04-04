@@ -32,7 +32,7 @@ runs:
 
     - name: Install gitglimpse
       shell: bash
-      run: pip install gitglimpse
+      run: pip install "gitglimpse[llm]"
 
     - name: Generate PR context
       shell: bash

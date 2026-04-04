@@ -18,7 +18,6 @@ from gitglimpse.formatters.template import format_standup, format_week_template
 from gitglimpse.git import GitError, get_branch_commits, get_commit_diff, get_commits, get_current_branch_name
 from gitglimpse.grouping import filter_noise_commits, group_commits_into_tasks, is_vague_message
 from gitglimpse.providers import get_provider
-from gitglimpse.providers.local import LocalProvider
 
 app = typer.Typer(
     name="glimpse",
@@ -276,6 +275,7 @@ def _print_status_line(
         ctx_mode: str = "commits",
 ) -> None:
     """Print a one-line dim status showing author, context, and active model."""
+    from gitglimpse.providers.local import LocalProvider
     from gitglimpse.providers.openai import OpenAIProvider
     from gitglimpse.providers.claude import ClaudeProvider
     from gitglimpse.providers.gemini import GeminiProvider
@@ -315,6 +315,8 @@ def _resolve_provider(
       2. config default_mode == local-llm / api → get_provider()
       3. anything else → None (template fallback)
     """
+    from gitglimpse.providers.local import LocalProvider
+
     if use_local:
         url = local_url_override or cfg.local_llm_url
         model = model_override or cfg.llm_model or None
@@ -457,6 +459,7 @@ def standup(
     active_provider: object | None = None
     llm_output: str | None = None
     if not no_llm:
+        from gitglimpse.providers.local import LocalProvider
         provider = _resolve_provider(cfg, local_llm, local_llm_url, model, context_mode=ctx_mode)
         if provider is not None:
             if isinstance(provider, LocalProvider) and not provider.is_available():
@@ -602,6 +605,7 @@ def week(
     active_provider: object | None = None
     llm_output: str | None = None
     if not no_llm:
+        from gitglimpse.providers.local import LocalProvider
         provider = _resolve_provider(cfg, local_llm, local_llm_url, model, context_mode=ctx_mode)
         if provider is not None:
             if isinstance(provider, LocalProvider) and not provider.is_available():
@@ -733,6 +737,7 @@ def pr(
     active_provider: object | None = None
     llm_output: str | None = None
     if not no_llm:
+        from gitglimpse.providers.local import LocalProvider
         provider = _resolve_provider(cfg, local_llm, local_llm_url, model, context_mode=ctx_mode)
         if provider is not None:
             if isinstance(provider, LocalProvider) and not provider.is_available():

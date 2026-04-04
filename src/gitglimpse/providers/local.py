@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-import httpx
-
 from gitglimpse.providers.base import BaseLLMProvider, _warn, validate_llm_output
 
 if TYPE_CHECKING:
@@ -16,6 +14,16 @@ _CONNECT_TIMEOUT = 30.0
 _READ_TIMEOUT = 240.0
 _AVAILABILITY_TIMEOUT = 3.0
 _DEFAULT_MODEL = "qwen2.5-coder:latest"
+
+_HTTPX_INSTALL_HINT = "httpx is required for LLM features. Install with: pip install 'gitglimpse[llm]'"
+
+
+def _import_httpx():
+    try:
+        import httpx
+        return httpx
+    except ImportError:
+        raise ImportError(_HTTPX_INSTALL_HINT)
 
 
 class LocalProvider(BaseLLMProvider):
@@ -27,6 +35,7 @@ class LocalProvider(BaseLLMProvider):
         model: str | None = None,
         context_mode: str = "commits",
     ) -> None:
+        httpx = _import_httpx()
         self.base_url = base_url.rstrip("/")
         self._explicit_model = model
         self._model_resolved = bool(model)
@@ -41,6 +50,7 @@ class LocalProvider(BaseLLMProvider):
 
     def is_available(self) -> bool:
         """Return True if the local server responds to a quick probe."""
+        httpx = _import_httpx()
         try:
             resp = httpx.get(
                 f"{self.base_url}/models",
@@ -55,6 +65,7 @@ class LocalProvider(BaseLLMProvider):
         if self._model_resolved:
             return
         self._model_resolved = True
+        httpx = _import_httpx()
         try:
             resp = httpx.get(
                 f"{self.base_url}/models",
@@ -68,6 +79,7 @@ class LocalProvider(BaseLLMProvider):
             pass  # keep the default
 
     def _chat(self, user_message: str, system_prompt: str | None = None) -> str | None:
+        httpx = _import_httpx()
         self._auto_detect_model()
         url = f"{self.base_url}/chat/completions"
         if system_prompt is None:
