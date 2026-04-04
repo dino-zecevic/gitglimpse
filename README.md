@@ -4,7 +4,9 @@
 
 # gitglimpse
 
-**Turn messy git history into clean, structured context — for humans and AI.**
+**Extract structured context from your git history. Standups, PR descriptions, weekly reports, and LLM-ready JSON — from one command.**
+
+50KB of raw diffs → 1KB of structured signal. Less noise, fewer tokens, better output.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-F59E0B)](LICENSE)
@@ -75,6 +77,18 @@ Instead of dumping raw diffs into an LLM, you give it:
 
 ## 🚀 Commands
 
+### `glimpse pr`
+
+Generate PR summaries from your branch.
+
+```bash
+glimpse pr
+glimpse pr --json
+glimpse pr --base develop
+```
+
+---
+
 ### `glimpse standup`
 
 Generate a daily summary or structured context.
@@ -109,17 +123,6 @@ glimpse week --json
 
 ---
 
-### `glimpse pr`
-
-Generate PR summaries from your branch.
-
-```bash
-glimpse pr
-glimpse pr --json
-```
-
----
-
 ### `glimpse init`
 
 Install Claude Code / Cursor slash commands.
@@ -134,6 +137,17 @@ Then in your editor:
 /standup
 /pr
 /week
+```
+
+---
+
+### `glimpse config`
+
+View or edit configuration.
+
+```bash
+glimpse config show
+glimpse config setup
 ```
 
 ---
@@ -230,6 +244,22 @@ Now every dev on your team gets:
 ```
 
 📌 The repo becomes the distribution channel.
+
+---
+
+## GitHub Action
+
+Add automatic PR context to your repository:
+
+```yaml
+- uses: dino-zecevic/gitglimpse@main
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Every pull request gets a structured summary with changes, ticket IDs, and effort estimates. The comment updates on each push.
+
+See [action/README.md](action/README.md) for full configuration options.
 
 ---
 
