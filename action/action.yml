@@ -37,7 +37,7 @@ runs:
     - name: Generate PR context
       shell: bash
       run: |
-        PR_JSON=$(glimpse pr --json --base ${{ inputs.base-branch }} --context ${{ inputs.context-mode }} ${{ inputs.filter-noise == 'false' && '--no-filter-noise' || '' }})
+        PR_JSON=$(glimpse pr --json --base ${{ inputs.base-branch }} --context ${{ inputs.context-mode }} --skip-setup ${{ inputs.filter-noise == 'false' && '--no-filter-noise' || '' }})
         echo "$PR_JSON" > /tmp/glimpse-pr.json
 
     - name: Post PR comment
