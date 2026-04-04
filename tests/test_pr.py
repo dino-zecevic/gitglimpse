@@ -210,3 +210,62 @@ class TestPrTicketIntegration:
             tasks, "feat/add-search", "main", ticket=ticket,
         ))
         assert data["ticket"] is None
+
+
+# ---------------------------------------------------------------------------
+# --provider flag: _apply_provider_override
+# ---------------------------------------------------------------------------
+
+from gitglimpse.cli import _apply_provider_override, _PROVIDER_DEFAULTS
+from gitglimpse.config import Config
+
+
+class TestApplyProviderOverride:
+    def test_no_provider_does_nothing(self) -> None:
+        cfg = Config()
+        original_mode = cfg.default_mode
+        _apply_provider_override(cfg, None, None)
+        assert cfg.default_mode == original_mode
+
+    def test_openai_sets_api_mode(self) -> None:
+        cfg = Config()
+        _apply_provider_override(cfg, "openai", None)
+        assert cfg.default_mode == "api"
+        assert cfg.llm_provider == "openai"
+        assert cfg.api_key_env == "OPENAI_API_KEY"
+        assert cfg.llm_model == "gpt-4o-mini"
+
+    def test_anthropic_sets_api_mode(self) -> None:
+        cfg = Config()
+        _apply_provider_override(cfg, "anthropic", None)
+        assert cfg.default_mode == "api"
+        assert cfg.llm_provider == "anthropic"
+        assert cfg.api_key_env == "ANTHROPIC_API_KEY"
+        assert cfg.llm_model == "claude-sonnet-4-20250514"
+
+    def test_gemini_sets_api_mode(self) -> None:
+        cfg = Config()
+        _apply_provider_override(cfg, "gemini", None)
+        assert cfg.default_mode == "api"
+        assert cfg.llm_provider == "gemini"
+        assert cfg.api_key_env == "GEMINI_API_KEY"
+        assert cfg.llm_model == "gemini-2.5-flash"
+
+    def test_local_sets_local_llm_mode(self) -> None:
+        cfg = Config()
+        _apply_provider_override(cfg, "local", None)
+        assert cfg.default_mode == "local-llm"
+        assert cfg.llm_provider is None
+        assert cfg.api_key_env is None
+        assert cfg.llm_model == "qwen2.5-coder:latest"
+
+    def test_model_override_takes_priority(self) -> None:
+        cfg = Config()
+        _apply_provider_override(cfg, "openai", "gpt-4o")
+        assert cfg.llm_model == "gpt-4o"
+
+    def test_unknown_provider_exits(self) -> None:
+        from click.exceptions import Exit
+        cfg = Config()
+        with pytest.raises(Exit):
+            _apply_provider_override(cfg, "invalid-provider", None)

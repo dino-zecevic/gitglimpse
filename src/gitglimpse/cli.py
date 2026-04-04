@@ -301,6 +301,35 @@ def _print_status_line(
     console.print("[dim]" + " · ".join(parts) + "[/dim]", highlight=False)
 
 
+_PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
+    "openai": {"api_key_env": "OPENAI_API_KEY", "model": "gpt-4o-mini", "mode": "api"},
+    "anthropic": {"api_key_env": "ANTHROPIC_API_KEY", "model": "claude-sonnet-4-20250514", "mode": "api"},
+    "gemini": {"api_key_env": "GEMINI_API_KEY", "model": "gemini-2.5-flash", "mode": "api"},
+    "local": {"api_key_env": "", "model": "qwen2.5-coder:latest", "mode": "local-llm"},
+}
+
+
+def _apply_provider_override(
+        cfg: Config,
+        provider_name: Optional[str],
+        model_override: Optional[str],
+) -> None:
+    """Mutate *cfg* in-place when --provider is passed on the CLI."""
+    if not provider_name:
+        return
+    defaults = _PROVIDER_DEFAULTS.get(provider_name)
+    if defaults is None:
+        _stderr_console.print(
+            f"[bold red]Error:[/bold red] Unknown provider '{provider_name}'. "
+            f"Choose from: {', '.join(_PROVIDER_DEFAULTS)}"
+        )
+        raise typer.Exit(1)
+    cfg.default_mode = defaults["mode"]
+    cfg.llm_provider = provider_name if provider_name != "local" else None
+    cfg.api_key_env = defaults["api_key_env"] or None
+    cfg.llm_model = model_override or defaults["model"]
+
+
 def _resolve_provider(
         cfg: Config,
         use_local: bool,
@@ -381,6 +410,10 @@ def standup(
             Optional[str],
             typer.Option("--output", "-o", help="Save output to file instead of printing."),
         ] = None,
+        provider: Annotated[
+            Optional[str],
+            typer.Option("--provider", help="LLM provider override: openai, anthropic, gemini, local.", hidden=True),
+        ] = None,
         skip_setup: Annotated[
             bool,
             typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
@@ -397,6 +430,7 @@ def standup(
       glimpse standup --repos "api,frontend,landing"
     """
     cfg = _load_or_onboard(skip_setup)
+    _apply_provider_override(cfg, provider, model)
     effective = _effective_since(since, cfg.default_since)
     ctx_mode = context or cfg.context_mode
     resolved_author = _resolve_author(author, cfg.author_email)
@@ -539,6 +573,10 @@ def week(
             typer.Option("--filter-noise/--no-filter-noise",
                          help="Filter out noise commits (merges, formatting, lock files)."),
         ] = None,
+        provider: Annotated[
+            Optional[str],
+            typer.Option("--provider", help="LLM provider override: openai, anthropic, gemini, local.", hidden=True),
+        ] = None,
         skip_setup: Annotated[
             bool,
             typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
@@ -553,6 +591,7 @@ def week(
       glimpse week --json
     """
     cfg = _load_or_onboard(skip_setup)
+    _apply_provider_override(cfg, provider, model)
     ctx_mode = context or cfg.context_mode
     resolved_author = _resolve_author(author, cfg.author_email)
     do_filter = filter_noise if filter_noise is not None else cfg.filter_noise
@@ -661,6 +700,10 @@ def pr(
             typer.Option("--filter-noise/--no-filter-noise",
                          help="Filter out noise commits (merges, formatting, lock files)."),
         ] = None,
+        provider: Annotated[
+            Optional[str],
+            typer.Option("--provider", help="LLM provider override: openai, anthropic, gemini, local.", hidden=True),
+        ] = None,
         skip_setup: Annotated[
             bool,
             typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
@@ -676,6 +719,7 @@ def pr(
       glimpse pr --context diffs
     """
     cfg = _load_or_onboard(skip_setup)
+    _apply_provider_override(cfg, provider, model)
     # PR defaults to "both" context for richer output, unless explicitly overridden.
     ctx_mode = context or "both"
     do_filter = filter_noise if filter_noise is not None else cfg.filter_noise

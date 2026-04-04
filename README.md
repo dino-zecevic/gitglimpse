@@ -250,16 +250,62 @@ Now every dev on your team gets:
 ## GitHub Action
 
 Add automatic PR context to your repository:
-
 ```yaml
 - uses: dino-zecevic/gitglimpse@main
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-Every pull request gets a structured summary with changes, ticket IDs, and effort estimates. The comment updates on each push.
+For richer summaries powered by an LLM:
+```yaml
+- uses: dino-zecevic/gitglimpse@main
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    llm-provider: openai
+    llm-api-key: ${{ secrets.OPENAI_API_KEY }}
+    llm-model: gpt-4o-mini
+```
+
+Every pull request gets a structured summary with changes, ticket IDs, and effort estimates. The comment updates on each push. Without an LLM, template mode runs automatically — no API key needed.
 
 See [action/README.md](action/README.md) for full configuration options.
+
+---
+
+## CI/CD Integration
+
+gitglimpse works in any CI system. The GitHub Action handles comment posting automatically. For GitLab and Bitbucket, run the CLI directly:
+
+### GitLab CI
+```yaml
+pr-context:
+  stage: test
+  script:
+    - pip install gitglimpse
+    - glimpse pr --skip-setup
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+```
+
+### Bitbucket Pipelines
+```yaml
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: PR Context
+          script:
+            - pip install gitglimpse
+            - glimpse pr --skip-setup
+```
+
+### Adding LLM in any CI
+```bash
+export OPENAI_API_KEY=$YOUR_SECRET
+glimpse pr --provider openai --model gpt-4o-mini --context both --skip-setup
+```
+
+Works with OpenAI, Anthropic, and Gemini. The API key is only used for the single API call during the pipeline run.
 
 ---
 
