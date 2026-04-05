@@ -213,3 +213,6 @@ __marimo__/
 # Build
 *.pyc
 .venv/
+
+.claude/
+.cursor/
