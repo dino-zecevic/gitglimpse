@@ -6,8 +6,6 @@
 
 **Extract structured context from your git history. Standups, PR descriptions, weekly reports, and LLM-ready JSON — from one command.**
 
-50KB of raw diffs → 1KB of structured signal. Less noise, fewer tokens, better output.
-
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-F59E0B)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
@@ -123,6 +121,18 @@ glimpse week --json
 
 ---
 
+### `glimpse report`
+
+Generate a daily Markdown report with file-level detail.
+
+```bash
+glimpse report
+glimpse report -o daily.md
+glimpse report --since "3 days ago"
+```
+
+---
+
 ### `glimpse init`
 
 Install Claude Code / Cursor slash commands.
@@ -160,6 +170,68 @@ glimpse config setup
 | **Local LLM** | Uses Ollama (privacy-first)     |
 | **Cloud API** | OpenAI / Anthropic / Gemini     |
 | **JSON**      | Structured output for pipelines |
+
+---
+
+## GitHub Action
+
+Add automatic PR context to your repository:
+```yaml
+- uses: dino-zecevic/gitglimpse@main
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+For richer summaries powered by an LLM:
+```yaml
+- uses: dino-zecevic/gitglimpse@main
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    llm-provider: openai
+    llm-api-key: ${{ secrets.OPENAI_API_KEY }}
+    llm-model: gpt-4o-mini
+```
+
+Every pull request gets a structured summary with changes, ticket IDs, and effort estimates. The comment updates on each push. Without an LLM, template mode runs automatically — no API key needed.
+
+See [action/README.md](action/README.md) for full configuration, all inputs, and example output.
+
+---
+
+## CI/CD Integration
+
+gitglimpse works in any CI system. The GitHub Action handles comment posting automatically. For GitLab and Bitbucket, run the CLI directly:
+
+### GitLab CI
+```yaml
+pr-context:
+  stage: test
+  script:
+    - pip install gitglimpse
+    - glimpse pr --skip-setup
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+```
+
+### Bitbucket Pipelines
+```yaml
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: PR Context
+          script:
+            - pip install gitglimpse
+            - glimpse pr --skip-setup
+```
+
+### Adding LLM in any CI
+```bash
+export OPENAI_API_KEY=$YOUR_SECRET
+glimpse pr --provider openai --model gpt-4o-mini --context both --skip-setup
+```
+
+Works with OpenAI, Anthropic, and Gemini. The API key is only used for the single API call during the pipeline run.
 
 ---
 
@@ -244,68 +316,6 @@ Now every dev on your team gets:
 ```
 
 The repo becomes the distribution channel.
-
----
-
-## GitHub Action
-
-Add automatic PR context to your repository:
-```yaml
-- uses: dino-zecevic/gitglimpse@main
-  with:
-    github-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-For richer summaries powered by an LLM:
-```yaml
-- uses: dino-zecevic/gitglimpse@main
-  with:
-    github-token: ${{ secrets.GITHUB_TOKEN }}
-    llm-provider: openai
-    llm-api-key: ${{ secrets.OPENAI_API_KEY }}
-    llm-model: gpt-4o-mini
-```
-
-Every pull request gets a structured summary with changes, ticket IDs, and effort estimates. The comment updates on each push. Without an LLM, template mode runs automatically — no API key needed.
-
-See [action/README.md](action/README.md) for full configuration options.
-
----
-
-## CI/CD Integration
-
-gitglimpse works in any CI system. The GitHub Action handles comment posting automatically. For GitLab and Bitbucket, run the CLI directly:
-
-### GitLab CI
-```yaml
-pr-context:
-  stage: test
-  script:
-    - pip install gitglimpse
-    - glimpse pr --skip-setup
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-```
-
-### Bitbucket Pipelines
-```yaml
-pipelines:
-  pull-requests:
-    '**':
-      - step:
-          name: PR Context
-          script:
-            - pip install gitglimpse
-            - glimpse pr --skip-setup
-```
-
-### Adding LLM in any CI
-```bash
-export OPENAI_API_KEY=$YOUR_SECRET
-glimpse pr --provider openai --model gpt-4o-mini --context both --skip-setup
-```
-
-Works with OpenAI, Anthropic, and Gemini. The API key is only used for the single API call during the pipeline run.
 
 ---
 
