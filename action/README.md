@@ -1,6 +1,6 @@
 # gitglimpse PR Context Action
 
-Auto-generate structured PR descriptions from your git history.
+Auto-generate structured PR descriptions from your git history. Part of [gitglimpse](https://github.com/dino-zecevic/gitglimpse).
 
 ## Basic usage (template mode)
 ```yaml
@@ -66,3 +66,30 @@ On every PR, gitglimpse:
 6. (Optional) Uses an LLM to read diffs and write richer descriptions
 
 The comment updates on each push — no duplicate comments.
+
+## Example output
+
+The action posts a comment like this on your PR:
+
+> ### PR Context (gitglimpse)
+>
+> **Summary:** Refactored auth middleware to support JWT rotation.
+>
+> **Ticket:** `AUTH-42`
+>
+> **Changes:**
+> - Add JWT refresh handler with token rotation (AUTH-42) (~1h)
+> - Add rate limiting middleware (~0.5h)
+> - Add auth test coverage (~0.5h)
+>
+> **Files:** auth.py, middleware.py, tests/test_auth.py
+>
+> **Stats:** 5 commits · +142 / -8 · ~2h estimated effort
+>
+> *2 noise commits filtered*
+
+## Requirements
+
+- The checkout step must use `fetch-depth: 0` (full history)
+- The `git fetch origin main:main` step ensures the base branch is available for comparison
+- The job needs `pull-requests: write` permission

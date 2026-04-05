@@ -887,7 +887,11 @@ def _write_command_file(
 def init(
         cursor: Annotated[
             bool,
-            typer.Option("--cursor", help="Also create .cursor/commands/ files."),
+            typer.Option("--cursor", help="Create .cursor/commands/ files."),
+        ] = False,
+        claude: Annotated[
+            bool,
+            typer.Option("--claude", help="Create .claude/commands/ files."),
         ] = False,
         force: Annotated[
             bool,
@@ -898,19 +902,24 @@ def init(
             typer.Option("--repo", help="Target repository root. Defaults to current directory."),
         ] = None,
 ) -> None:
-    """Initialize Claude Code (and optionally Cursor) slash-command files.
+    """Initialize Claude Code and/or Cursor slash-command files.
 
     \b
     Examples:
-      glimpse init
-      glimpse init --cursor
+      glimpse init                   # Claude Code only (default)
+      glimpse init --cursor          # Cursor only
+      glimpse init --claude --cursor # both
       glimpse init --force
     """
     root = Path(repo) if repo else Path.cwd()
 
-    targets: list[tuple[Path, str]] = [
-        (root / ".claude" / "commands", "Claude Code"),
-    ]
+    # Default to Claude Code if neither flag is specified.
+    if not cursor and not claude:
+        claude = True
+
+    targets: list[tuple[Path, str]] = []
+    if claude:
+        targets.append((root / ".claude" / "commands", "Claude Code"))
     if cursor:
         targets.append((root / ".cursor" / "commands", "Cursor"))
 

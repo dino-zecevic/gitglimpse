@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gitglimpse"
-version = "0.1.6"
+version = "0.1.7"
 description = "Extract structured context from your git history — PR descriptions, standups, weekly reports, and LLM-ready JSON."
 readme = "PYPI_README.md"
 authors = [{ name = "Dino" }]
