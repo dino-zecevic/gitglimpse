@@ -18,7 +18,6 @@ gitglimpse reads your git log, groups commits into logical tasks, filters noise,
 glimpse pr                          # PR summary from current branch
 glimpse standup                     # daily context from recent commits
 glimpse week                        # weekly summary grouped by day
-glimpse report                      # markdown report with file details
 glimpse init                        # generate Claude Code / Cursor slash commands
 glimpse config setup                # interactive configuration
 ```
