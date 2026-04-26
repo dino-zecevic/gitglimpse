@@ -43,7 +43,7 @@
 
 ## About
 
-Modern development — especially with AI — creates more changes across more files than ever. Git tracks what changed, but not in a way that's easy to understand quickly.
+AI generates more code changes than ever, across more files. Git tracks what changed, but not in a structured form that's easy to act on.
 
 gitglimpse reads your git history, filters noise, groups commits into logical tasks, extracts ticket IDs, and outputs structured context that humans and AI tools can consume.
 
