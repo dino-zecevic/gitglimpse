@@ -5,6 +5,7 @@ Ideas and future directions for gitglimpse. Community input welcome — open an 
 ## Done
 
 - [x] GitHub Action for automatic PR summaries — run gitglimpse in CI and post context as a PR comment
+- [x] Changelog generation from tagged releases — `glimpse changelog` groups commits by Conventional Commits type
 
 ## Planned
 
@@ -13,7 +14,6 @@ Ideas and future directions for gitglimpse. Community input welcome — open an 
 
 ## Under Consideration
 
-- [ ] Changelog generation from tagged releases
 - [ ] Slack/Discord integration for posting summaries
 - [ ] Custom output templates (user-defined formats)
 - [ ] Config profiles (different settings per project)
@@ -27,4 +27,4 @@ Ideas and future directions for gitglimpse. Community input welcome — open an 
 
 ---
 
-Have an idea? Open a [discussion](https://github.com/YOUR_USERNAME/gitglimpse/discussions).
+Have an idea? Open a [discussion](https://github.com/dino-zecevic/gitglimpse/discussions).

@@ -107,6 +107,17 @@ glimpse week          # last 7 days
 glimpse week --json   # structured JSON
 ```
 
+### `glimpse changelog`
+
+Release changelog from a tag/ref range, grouped by Conventional Commits type.
+
+```bash
+glimpse changelog                          # latest tag → HEAD
+glimpse changelog --from v1.2.0 --to v1.3.0
+glimpse changelog --json                   # structured JSON
+glimpse changelog --format markdown -o CHANGELOG_NEXT.md
+```
+
 ### `glimpse init`
 
 Generate slash-command files for Claude Code and Cursor.
@@ -117,7 +128,7 @@ glimpse init --cursor           # Cursor commands only
 glimpse init --claude --cursor  # Claude Code & Cursor commands
 ```
 
-Creates `/standup`, `/pr`, `/week`, and `/report` commands in your repo.
+Creates `/standup`, `/pr`, `/week`, `/report`, and `/changelog` commands in your repo.
 
 ### `glimpse config`
 
@@ -229,7 +240,7 @@ glimpse init                          # creates .claude/commands/
 git add .claude/commands/ && git commit -m "add glimpse commands"
 ```
 
-Every developer who pulls the repo gets `/standup`, `/pr`, `/week`, and `/report` as slash commands. The repo is the distribution channel.
+Every developer who pulls the repo gets `/standup`, `/pr`, `/week`, `/report`, and `/changelog` as slash commands. The repo is the distribution channel.
 
 For Cursor only: `glimpse init --cursor`
 For both: `glimpse init --claude --cursor`

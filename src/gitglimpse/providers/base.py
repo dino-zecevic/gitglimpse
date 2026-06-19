@@ -43,6 +43,20 @@ def validate_llm_output(response: str) -> bool:
     return True
 
 
+_MAX_CHANGELOG_LEN = 8000
+
+
+def validate_changelog_output(response: str) -> bool:
+    """Relaxed validation for changelog output (multi-heading Markdown is expected)."""
+    if not response or not response.strip():
+        return False
+    if len(response) > _MAX_CHANGELOG_LEN:
+        return False
+    if _GARBAGE_PHRASES.search(response):
+        return False
+    return True
+
+
 class BaseLLMProvider(ABC):
     """Common interface all LLM providers must implement."""
 
@@ -83,6 +97,16 @@ class BaseLLMProvider(ABC):
         diff_snippets: dict[str, str] | None = None,
     ) -> str | None:
         """Return a formatted PR summary, or None on failure."""
+
+    @abstractmethod
+    def summarize_changelog(
+        self,
+        commits: list,
+        from_ref: str | None,
+        to_ref: str,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str | None:
+        """Return a formatted changelog (Markdown), or None on failure."""
 
     # ------------------------------------------------------------------
     # Shared helpers
@@ -149,6 +173,63 @@ class BaseLLMProvider(ABC):
         "quality'. Only describe what actually changed. "
         "Keep the total output under 300 words."
     )
+
+    _CHANGELOG_PROMPT = (
+        "Generate a release changelog in Markdown from the structured changes below.\n\n"
+        "Write:\n"
+        "1. A short ## heading per change category that has entries "
+        "(Features, Bug Fixes, etc.), in the order given.\n"
+        "2. One bullet per entry, rewritten as a clear, user-facing change. "
+        "Keep ticket IDs and short hashes in parentheses if present.\n"
+        "3. If there are breaking changes, put them first under a "
+        "'## ⚠ Breaking Changes' heading.\n\n"
+        "Stay faithful to the provided entries — do not invent changes, do not "
+        "drop entries, and do not add commentary, suggestions, or next steps. "
+        "Output only the changelog."
+    )
+
+    @classmethod
+    def get_changelog_system_prompt(cls, context_mode: str = "commits") -> str:
+        """Return system prompt for changelog generation."""
+        return cls._CHANGELOG_PROMPT + cls._context_addendum(context_mode)
+
+    @staticmethod
+    def _format_changelog_context(
+        commits: list,
+        from_ref: str | None,
+        to_ref: str,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str:
+        """Serialise changelog entries grouped by category for the LLM prompt."""
+        from gitglimpse.formatters.changelog import build_sections
+
+        sections = build_sections(commits)
+        range_label = f"{from_ref}..{to_ref}" if from_ref else to_ref
+        lines = [
+            f"Range: {range_label}",
+            f"Total changes: {sum(len(e) for _, _, e in sections)}",
+            "",
+        ]
+        for _key, heading, entries in sections:
+            lines.append(f"{heading}:")
+            for e in entries:
+                suffix_parts = [p for p in (e["ticket"], e["hash"]) if p]
+                suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
+                breaking = " [BREAKING]" if e["breaking"] else ""
+                lines.append(f"  - {e['subject']}{suffix}{breaking}")
+            lines.append("")
+
+        if diff_snippets:
+            shown = [c for c in commits if not c.is_merge and c.hash in diff_snippets]
+            if shown:
+                lines.append("Selected diffs:")
+                for commit in shown:
+                    lines.append(f"  Diff ({commit.hash[:7]}):")
+                    for dl in diff_snippets[commit.hash].splitlines():
+                        lines.append(f"    {dl}")
+                lines.append("")
+
+        return "\n".join(lines)
 
     @classmethod
     def _context_addendum(cls, context_mode: str) -> str:

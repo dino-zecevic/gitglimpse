@@ -102,6 +102,35 @@ Generate a pull request summary from the current branch.
 
 ---
 
+### glimpse changelog
+
+Generate a changelog from commits in a tag/ref range, grouped by Conventional Commits type.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--from` | string | latest tag | Start ref (tag/commit). Falls back to full history if there are no tags. |
+| `--to` | string | `HEAD` | End ref (tag/commit/branch). |
+| `--json` | bool | `false` | Output as JSON. |
+| `--no-llm` | bool | `false` | Skip LLM; use template formatter. |
+| `--local-llm` | bool | `false` | Force local LLM (Ollama). |
+| `--local-llm-url` | string | (from config) | Override local LLM base URL. |
+| `--model` | string | (from config) | Override LLM model name. |
+| `--repo` | string | cwd | Path to git repository. |
+| `--context` | string | (from config) | `commits`, `diffs`, or `both`. |
+| `--filter-noise / --no-filter-noise` | bool | (from config) | Toggle noise commit filtering. |
+| `--format` | string | `default` | `default` (Rich) or `markdown`. |
+| `--output`, `-o` | string | (none) | Save output to file (always Markdown). |
+| `--provider` | string | (hidden) | Provider override. |
+| `--skip-setup` | bool | (hidden) | Skip first-run onboarding. |
+
+- Default range is `<latest tag>..HEAD`; with no tags it covers the full history up to `--to`.
+- Commits are classified by Conventional Commits prefix (`feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `style`, `revert`, `chore`); unrecognised messages fall under **Other Changes**.
+- Breaking changes (`type!:` or a `BREAKING CHANGE` footer) are surfaced in their own section first.
+- Merge commits are skipped; duplicate subjects within a section are collapsed.
+- Ticket IDs and short hashes are shown per entry. Single-repo only.
+
+---
+
 ### glimpse config show
 
 Display current configuration as a table.
@@ -193,11 +222,12 @@ Controls detail level for LLM prompts and JSON output.
 | Value | Behavior |
 |-------|----------|
 | `commits` | Commit messages only. No diffs collected. Fastest. |
-| `diffs` | Code diffs only. Commit messages excluded from LLM context (still in JSON unless mode is `diffs`). |
-| `both` | Commit messages + code diffs. Richest context, best LLM results. |
+| `diffs` | Code diffs only, for every commit. Commit messages excluded from LLM context (still in JSON unless mode is `diffs`). |
+| `both` | Commit messages, plus diffs for commits whose messages are vague/uninformative. The message carries intent for well-described commits; diffs fill the gap only where the message doesn't. |
 
 - Diffs collected via `git show --patch -U2 <hash>`, max 50 lines per commit.
-- In `commits` mode, diffs are still collected for vague-message commits.
+- In `both` mode, diffs are collected and shown only for vague-message commits — collection matches what the LLM actually receives, so no diffs are fetched and then discarded.
+- In `commits` mode, no diffs are collected.
 - JSON `diff_snippet` capped at 40 lines per task.
 - `glimpse pr` defaults to `both` regardless of config.
 
@@ -236,16 +266,24 @@ Commits with a mix of noise and real files are kept. Filtered count appears in o
 
 ## Effort estimation
 
-Each task gets an `estimated_minutes` value from commit timing:
+Each task gets an `estimated_minutes` value, primarily from commit timing with
+change size as a secondary signal:
 
 1. Merge commits contribute 0 time.
 2. First non-merge commit: +**30 min** assumed prior work.
 3. Gaps between consecutive non-merge commits:
    - < 2 hours: add actual gap.
    - >= 2 hours: add capped **45 min** (break assumed).
-4. Total lines < 20 AND any gap >= 2h: floor at **30 min** (debugging sessions).
-5. Total lines > 200: multiply by **1.2x** (complexity).
-6. Minimum: **15 min**.
+4. **Weak-timing size signal** — for a *single* non-merge commit (no gaps to infer
+   from, e.g. squashed/force-pushed work) with **> 50** changed lines: add
+   `(lines − 50) × 0.4` minutes, plus **5 min** per extra file touched, capped at
+   **120 min**. Small single commits are unaffected.
+5. Total lines < 20 AND any gap >= 2h: floor at **30 min** (debugging sessions).
+6. **Complexity multiplier** — a continuous ramp above 200 lines:
+   `1 + 0.2 × log2(lines / 200)`, capped at **1.5×** (1.0× at or below 200 lines).
+7. Minimum: **15 min**.
+
+Effort remains a rough estimate, not a precise measurement.
 
 ---
 
@@ -306,7 +344,7 @@ Vague commits get diff collection for better context. In template mode, summarie
 
 ## Claude Code / Cursor
 
-`glimpse init` creates four slash-command files:
+`glimpse init` creates five slash-command files:
 
 | File | Command run | Output format |
 |------|------------|---------------|
@@ -314,6 +352,7 @@ Vague commits get diff collection for better context. In template mode, summarie
 | `report.md` | `glimpse standup --json --context both` | Markdown daily report with headings and change stats |
 | `week.md` | `glimpse week --json --context both` | Weekly summary with themes and highlights |
 | `pr.md` | `glimpse pr --json --context both` | PR description with summary, changes, and stats |
+| `changelog.md` | `glimpse changelog --json --context both` | Release changelog grouped by change type |
 
 Files are placed in `.claude/commands/` or `.cursor/commands/` depending on flags.
 
