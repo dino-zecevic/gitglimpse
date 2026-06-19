@@ -11,11 +11,24 @@ from rich.table import Table
 
 from gitglimpse import __version__
 from gitglimpse.config import Config, is_first_run, load_config
+from gitglimpse.formatters.changelog import (
+    format_changelog_json,
+    format_changelog_markdown,
+    format_changelog_template,
+)
 from gitglimpse.formatters.json import format_standup_json, format_week_json
 from gitglimpse.formatters.markdown import format_report
 from gitglimpse.formatters.pr import format_pr_json, format_pr_template
 from gitglimpse.formatters.template import format_standup, format_week_template
-from gitglimpse.git import GitError, get_branch_commits, get_commit_diff, get_commits, get_current_branch_name
+from gitglimpse.git import (
+    GitError,
+    get_branch_commits,
+    get_commit_diff,
+    get_commits,
+    get_commits_in_range,
+    get_current_branch_name,
+    get_latest_tag,
+)
 from gitglimpse.grouping import filter_noise_commits, group_commits_into_tasks, is_vague_message
 from gitglimpse.providers import get_provider
 
@@ -462,15 +475,18 @@ def standup(
 
     diff_snippets: dict[str, str] | None = None
     if ctx_mode in ("diffs", "both"):
+        # "diffs" shows every commit's diff; "both" only shows vague-message ones.
+        collect_all = ctx_mode == "diffs"
         if multi:
             diff_snippets = {}
-            for rp, _ in repo_pairs:
+            for rp, project_name in repo_pairs:
+                repo_tasks = [t for t in tasks if t.project == project_name]
                 diff_snippets.update(
-                    _collect_diff_snippets(tasks, rp, all_commits=True)
+                    _collect_diff_snippets(repo_tasks, rp, all_commits=collect_all)
                 )
         else:
             rp = repo_pairs[0][0] if repo_pairs[0][1] else (Path(repo) if repo else None)
-            diff_snippets = _collect_diff_snippets(tasks, rp, all_commits=True)
+            diff_snippets = _collect_diff_snippets(tasks, rp, all_commits=collect_all)
 
     if as_json:
         since_date = _parse_date_bound(effective, 1)
@@ -625,7 +641,20 @@ def week(
     start_date = _parse_date_bound(since, 7)
     end_date = _parse_date_bound(until, 0)  # 0 days ago = today
 
-    diff_snippets = _collect_diff_snippets(tasks, None, all_commits=True) if ctx_mode in ("diffs", "both") else None
+    diff_snippets: dict[str, str] | None = None
+    if ctx_mode in ("diffs", "both"):
+        # "diffs" shows every commit's diff; "both" only shows vague-message ones.
+        collect_all = ctx_mode == "diffs"
+        if multi:
+            diff_snippets = {}
+            for rp, project_name in repo_pairs:
+                repo_tasks = [t for t in tasks if t.project == project_name]
+                diff_snippets.update(
+                    _collect_diff_snippets(repo_tasks, rp, all_commits=collect_all)
+                )
+        else:
+            rp = repo_pairs[0][0] if repo_pairs[0][1] else (Path(repo) if repo else None)
+            diff_snippets = _collect_diff_snippets(tasks, rp, all_commits=collect_all)
 
     if as_json:
         json_str = format_week_json(tasks, start_date, end_date, diff_snippets=diff_snippets, context_mode=ctx_mode)
@@ -758,9 +787,10 @@ def pr(
     ticket = extract_ticket_id(current_branch)
 
     # Collect diff snippets if needed.
+    # "diffs" shows every commit's diff; "both" only shows vague-message ones.
     diff_snippets: dict[str, str] | None = None
     if ctx_mode in ("diffs", "both"):
-        diff_snippets = _collect_diff_snippets(tasks, repo_path, all_commits=True)
+        diff_snippets = _collect_diff_snippets(tasks, repo_path, all_commits=ctx_mode == "diffs")
 
     # JSON output.
     if as_json:
@@ -812,6 +842,159 @@ def pr(
 
 
 # ---------------------------------------------------------------------------
+# changelog
+# ---------------------------------------------------------------------------
+
+@app.command()
+def changelog(
+        from_ref: Annotated[
+            Optional[str],
+            typer.Option("--from", help="Start ref (tag/commit). Defaults to the latest tag."),
+        ] = None,
+        to_ref: Annotated[
+            str,
+            typer.Option("--to", help="End ref (tag/commit/branch)."),
+        ] = "HEAD",
+        as_json: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+        no_llm: Annotated[bool, typer.Option("--no-llm", help="Skip LLM, use template formatter.")] = False,
+        local_llm: Annotated[bool, typer.Option("--local-llm", help="Use local LLM (Ollama).")] = False,
+        local_llm_url: Annotated[
+            Optional[str],
+            typer.Option("--local-llm-url", help="Override local LLM base URL."),
+        ] = None,
+        model: Annotated[
+            Optional[str],
+            typer.Option("--model", help="LLM model to use."),
+        ] = None,
+        repo: Annotated[
+            Optional[str],
+            typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
+        ] = None,
+        context: Annotated[
+            Optional[str],
+            typer.Option("--context", help="LLM context: 'commits', 'diffs', or 'both'."),
+        ] = None,
+        filter_noise: Annotated[
+            Optional[bool],
+            typer.Option("--filter-noise/--no-filter-noise",
+                         help="Filter out noise commits (merges, formatting, lock files)."),
+        ] = None,
+        fmt: Annotated[
+            Optional[str],
+            typer.Option("--format", help="Output format: 'default' (Rich) or 'markdown'."),
+        ] = None,
+        output: Annotated[
+            Optional[str],
+            typer.Option("--output", "-o", help="Save output to file instead of printing."),
+        ] = None,
+        provider: Annotated[
+            Optional[str],
+            typer.Option("--provider", help="LLM provider override: openai, anthropic, gemini, local.", hidden=True),
+        ] = None,
+        skip_setup: Annotated[
+            bool,
+            typer.Option("--skip-setup", help="Skip first-run onboarding.", hidden=True),
+        ] = False,
+) -> None:
+    """Generate a changelog from commits in a tag/ref range.
+
+    \b
+    Examples:
+      glimpse changelog                       # since the latest tag → HEAD
+      glimpse changelog --from v1.2.0 --to v1.3.0
+      glimpse changelog --json
+      glimpse changelog --format markdown -o CHANGELOG_NEXT.md
+    """
+    cfg = _load_or_onboard(skip_setup)
+    _apply_provider_override(cfg, provider, model)
+    ctx_mode = context or cfg.context_mode
+    do_filter = filter_noise if filter_noise is not None else cfg.filter_noise
+
+    repo_path = Path(repo).resolve() if repo else None
+
+    # Resolve the start ref: explicit --from, else the latest tag, else full history.
+    effective_from = from_ref or get_latest_tag(repo_path)
+    rev_range = f"{effective_from}..{to_ref}" if effective_from else to_ref
+
+    try:
+        commits = get_commits_in_range(repo_path=repo_path, rev_range=rev_range)
+    except GitError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(1)
+
+    filtered_count = 0
+    if do_filter:
+        original_count = len(commits)
+        commits = filter_noise_commits(commits)
+        filtered_count = original_count - len(commits)
+
+    if not commits:
+        console.print(f"No changes found in [bold]{rev_range}[/bold].")
+        raise typer.Exit(0)
+
+    # Collect diffs only if an LLM may use them. "diffs" → all; "both" → vague only.
+    diff_snippets: dict[str, str] | None = None
+    if not no_llm and ctx_mode in ("diffs", "both"):
+        from gitglimpse.grouping import changelog_subject
+        collect_all = ctx_mode == "diffs"
+        diff_snippets = {}
+        for commit in commits:
+            if commit.is_merge:
+                continue
+            if collect_all or is_vague_message(changelog_subject(commit.message)):
+                try:
+                    diff_snippets[commit.hash] = get_commit_diff(repo_path, commit.hash)
+                except GitError:
+                    pass
+
+    if as_json:
+        print(format_changelog_json(commits, effective_from, to_ref, filtered_count=filtered_count))
+        return
+
+    use_markdown = fmt and fmt.lower() == "markdown"
+
+    if filtered_count > 0:
+        console.print(f"[dim]Filtered {filtered_count} noise commits (merges, formatting, dependencies)[/dim]",
+                      highlight=False)
+
+    active_provider: object | None = None
+    llm_output: str | None = None
+    if not no_llm:
+        from gitglimpse.providers.local import LocalProvider
+        provider = _resolve_provider(cfg, local_llm, local_llm_url, model, context_mode=ctx_mode)
+        if provider is not None:
+            if isinstance(provider, LocalProvider) and not provider.is_available():
+                if local_llm:
+                    console.print(
+                        "[yellow]⚠ Local LLM not reachable — falling back to template.[/yellow]"
+                    )
+            else:
+                active_provider = provider
+                llm_output = provider.summarize_changelog(commits, effective_from, to_ref, diff_snippets)
+
+    _print_status_line(None, active_provider, ctx_mode)
+
+    if use_markdown or llm_output:
+        md = llm_output if llm_output else format_changelog_markdown(commits, effective_from, to_ref, filtered_count)
+        if output:
+            Path(output).write_text(md, encoding="utf-8")
+            console.print(f"Changelog saved to [bold]{output}[/bold]")
+        else:
+            console.print(md, markup=False, highlight=False)
+    else:
+        rendered = format_changelog_template(commits, effective_from, to_ref, filtered_count)
+        if output:
+            # Strip Rich markup for file output by using the Markdown formatter instead.
+            Path(output).write_text(
+                format_changelog_markdown(commits, effective_from, to_ref, filtered_count),
+                encoding="utf-8",
+            )
+            console.print(f"Changelog saved to [bold]{output}[/bold]")
+        else:
+            console.print(rendered, highlight=False)
+
+
+# ---------------------------------------------------------------------------
 # config show
 # ---------------------------------------------------------------------------
 
@@ -854,7 +1037,7 @@ def config_setup() -> None:
 # init
 # ---------------------------------------------------------------------------
 
-_COMMAND_TEMPLATES = ("standup.md", "report.md", "week.md", "pr.md")
+_COMMAND_TEMPLATES = ("standup.md", "report.md", "week.md", "pr.md", "changelog.md")
 
 
 def _read_template(name: str) -> str:

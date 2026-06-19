@@ -287,8 +287,11 @@ def get_commits(
     commits = _parse_raw_output(raw)
 
     # Enrich commits that have no branch decoration with source-ref data.
-    branch_map = _get_branch_map(git, cwd)
-    fallback_branch = _get_current_branch(git, cwd)
+    # The source-ref map walks the entire repo history, so only build it when
+    # some commit in this window actually lacks a branch label.
+    needs_branch_map = any(not c.branches for c in commits)
+    branch_map = _get_branch_map(git, cwd) if needs_branch_map else {}
+    fallback_branch = _get_current_branch(git, cwd) if needs_branch_map else ""
     enriched: list[Commit] = []
     for c in commits:
         if not c.branches:
@@ -393,6 +396,81 @@ def get_branch_commits(
                 message=c.message,
                 timestamp=c.timestamp,
                 branches=[fallback_branch],
+                files=c.files,
+                is_merge=c.is_merge,
+            )
+        enriched.append(c)
+
+    enriched.sort(key=lambda c: c.timestamp, reverse=True)
+    return enriched
+
+
+def get_latest_tag(repo_path: Path | None = None) -> str | None:
+    """Return the most recent tag reachable from HEAD, or None if there are none."""
+    git = _git_bin()
+    cwd = Path(repo_path) if repo_path is not None else Path.cwd()
+    result = subprocess.run(
+        [git, "describe", "--tags", "--abbrev=0"],
+        cwd=cwd, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    tag = result.stdout.strip()
+    return tag or None
+
+
+def get_commits_in_range(
+    repo_path: Path | None = None,
+    rev_range: str = "HEAD",
+) -> list[Commit]:
+    """Return commits in *rev_range* (e.g. ``v1.2.0..HEAD`` or ``HEAD``), newest first.
+
+    Raises GitError if the repo or any ref in the range is invalid.
+    """
+    git = _git_bin()
+    cwd = Path(repo_path) if repo_path is not None else Path.cwd()
+
+    if not cwd.exists():
+        raise GitError(f"Path does not exist: {cwd}")
+
+    verify = subprocess.run(
+        [git, "rev-parse", "--git-dir"],
+        cwd=cwd, capture_output=True, text=True,
+    )
+    if verify.returncode != 0:
+        raise GitError(f"Not a git repository: {cwd}")
+
+    # Empty repo (no commits yet).
+    head_check = subprocess.run(
+        [git, "rev-parse", "HEAD"],
+        cwd=cwd, capture_output=True, text=True,
+    )
+    if head_check.returncode != 0:
+        return []
+
+    cmd = [
+        git, "log",
+        f"--pretty=format:{_LOG_FORMAT}",
+        "--numstat",
+        rev_range,
+    ]
+    raw = _run(cmd, cwd=cwd)
+    commits = _parse_raw_output(raw)
+
+    # Enrich branch info, only walking history if a commit needs it.
+    needs_branch_map = any(not c.branches for c in commits)
+    branch_map = _get_branch_map(git, cwd) if needs_branch_map else {}
+    fallback_branch = _get_current_branch(git, cwd) if needs_branch_map else ""
+    enriched: list[Commit] = []
+    for c in commits:
+        if not c.branches:
+            branch = branch_map.get(c.hash, fallback_branch)
+            c = Commit(
+                hash=c.hash,
+                author_email=c.author_email,
+                message=c.message,
+                timestamp=c.timestamp,
+                branches=[branch],
                 files=c.files,
                 is_merge=c.is_merge,
             )

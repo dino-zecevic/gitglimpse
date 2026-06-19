@@ -137,23 +137,70 @@ class TestEstimateTaskDuration:
         assert result >= 15
 
     def test_complexity_multiplier_applied(self) -> None:
-        # >200 total lines → ×1.2; single commit → 30 × 1.2 = 36
+        # Single commit, 250 lines (1 file):
+        #   base 30 + size (250-50)*0.4 = 80 → 110
+        #   complexity ×(1 + 0.2*log2(250/200)) ≈ ×1.0644 → ≈117
         task = _task(
             [_commit()],
             insertions=150,
             deletions=100,  # total = 250 > 200
         )
         result = estimate_task_duration(task)
-        assert result == round(30 * 1.2)
+        assert result == 117
 
     def test_complexity_multiplier_not_applied_at_boundary(self) -> None:
-        # Exactly 200 lines → no multiplier (rule is >200)
+        # Exactly 200 lines → no complexity multiplier (ramp starts above 200).
+        # Single commit still gets the size signal: 30 + (200-50)*0.4 = 90.
         task = _task(
             [_commit()],
             insertions=100,
             deletions=100,  # total = 200, not >200
         )
+        assert estimate_task_duration(task) == 90
+
+    def test_complexity_multiplier_is_capped(self) -> None:
+        # Multi-commit task so the size signal does not apply; huge line count
+        # exercises only the complexity multiplier, which caps at 1.5×.
+        # base 30 + gap 60 = 90, ×1.5 = 135.
+        task = _task(
+            [_commit(offset_hours=0), _commit(offset_hours=1)],
+            insertions=50_000,
+            deletions=50_000,
+        )
+        assert estimate_task_duration(task) == round(90 * 1.5)
+
+    def test_size_signal_only_for_single_commit(self) -> None:
+        # Two commits with a large change: timing is the signal, NOT size.
+        # base 30 + gap 60 = 90; 120 lines < 200 so no complexity bump.
+        task = _task(
+            [_commit(offset_hours=0), _commit(offset_hours=1)],
+            insertions=120,
+            deletions=0,
+        )
+        assert estimate_task_duration(task) == 90
+
+    def test_size_signal_ignores_small_single_commit(self) -> None:
+        # A small single commit (< 50 lines) stays at the prior-work baseline.
+        task = _task([_commit()], insertions=30, deletions=0)
         assert estimate_task_duration(task) == 30
+
+    def test_size_signal_adds_for_extra_files(self) -> None:
+        # Single commit, 60 lines across 3 files:
+        #   base 30 + (60-50)*0.4 = 4 + (3-1)*5 = 10 → 30 + 14 = 44
+        commit = _commit(files=[
+            _fc("a.py", ins=20),
+            _fc("b.py", ins=20),
+            _fc("c.py", ins=20),
+        ])
+        task = _task([commit])
+        assert estimate_task_duration(task) == 44
+
+    def test_size_signal_capped(self) -> None:
+        # Single commit, very large: size contribution caps at 120 min, and the
+        # complexity multiplier caps at 1.5×.
+        # base 30 + min(120, (10000-50)*0.4) = 30 + 120 = 150, ×1.5 = 225.
+        task = _task([_commit()], insertions=10_000, deletions=0)
+        assert estimate_task_duration(task) == round(150 * 1.5)
 
     def test_small_changes_long_gap_floor(self) -> None:
         # < 20 total lines, gap > 2h → floor at 30.

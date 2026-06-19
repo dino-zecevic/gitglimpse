@@ -220,6 +220,74 @@ def extract_ticket_id(branch: str) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Conventional-commit classification (used by the changelog command)
+# ---------------------------------------------------------------------------
+
+# Ordered: how sections appear in a generated changelog. Only non-empty
+# sections are rendered.
+CHANGELOG_SECTIONS: list[tuple[str, str]] = [
+    ("feat", "Features"),
+    ("fix", "Bug Fixes"),
+    ("perf", "Performance"),
+    ("refactor", "Refactoring"),
+    ("docs", "Documentation"),
+    ("test", "Tests"),
+    ("build", "Build System"),
+    ("ci", "CI"),
+    ("style", "Styles"),
+    ("revert", "Reverts"),
+    ("chore", "Chores"),
+    ("other", "Other Changes"),
+]
+
+_CONVENTIONAL_TYPES = frozenset(k for k, _ in CHANGELOG_SECTIONS if k != "other")
+
+# type(optional-scope)!: subject
+_CONVENTIONAL_RE = re.compile(
+    r"^(?P<type>[a-z]+)(?:\([^)]+\))?(?P<breaking>!)?:\s*(?P<subject>.+)$",
+    re.IGNORECASE,
+)
+
+
+def classify_commit_type(message: str) -> str:
+    """Return the changelog section key for a commit message.
+
+    Recognises Conventional Commits prefixes (``feat:``, ``fix(scope):``, …).
+    Unknown or prefix-less messages fall back to ``"other"``.
+    """
+    m = _CONVENTIONAL_RE.match(message.strip())
+    if m:
+        ctype = m.group("type").lower()
+        if ctype in _CONVENTIONAL_TYPES:
+            return ctype
+    return "other"
+
+
+def is_breaking_change(message: str) -> bool:
+    """Return True if the commit marks a breaking change (``feat!:`` or footer)."""
+    first_line = message.strip().splitlines()[0] if message.strip() else ""
+    m = _CONVENTIONAL_RE.match(first_line)
+    if m and m.group("breaking"):
+        return True
+    return "BREAKING CHANGE" in message or "BREAKING-CHANGE" in message
+
+
+def changelog_subject(message: str) -> str:
+    """Return the commit's first line with a recognised Conventional Commits prefix stripped.
+
+    Only known types (``feat``, ``fix``, …) are stripped, so an arbitrary
+    ``word:`` prefix (e.g. ``gitglimpse:``) is left intact.
+    """
+    first_line = message.strip().splitlines()[0] if message.strip() else ""
+    m = _CONVENTIONAL_RE.match(first_line)
+    if m and m.group("type").lower() in _CONVENTIONAL_TYPES:
+        subject = m.group("subject").strip()
+        if subject:
+            return subject
+    return first_line
+
+
 def _branch_key(commit: Commit) -> str:
     """Return the primary branch for a commit, or 'main' as fallback."""
     return commit.branches[0] if commit.branches else "main"

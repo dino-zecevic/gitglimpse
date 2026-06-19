@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-from gitglimpse.providers.base import BaseLLMProvider, _warn, validate_llm_output
+from gitglimpse.providers.base import (
+    BaseLLMProvider,
+    _warn,
+    validate_changelog_output,
+    validate_llm_output,
+)
 
 if TYPE_CHECKING:
     from gitglimpse.grouping import Task
@@ -167,3 +172,15 @@ class LocalProvider(BaseLLMProvider):
         context = self._format_pr_context(tasks, branch, base, diff_snippets)
         prompt = self.get_pr_system_prompt(context_mode=self.context_mode)
         return self._validated(self._chat(context, system_prompt=prompt))
+
+    def summarize_changelog(
+        self,
+        commits: list,
+        from_ref: str | None,
+        to_ref: str,
+        diff_snippets: dict[str, str] | None = None,
+    ) -> str | None:
+        context = self._format_changelog_context(commits, from_ref, to_ref, diff_snippets)
+        prompt = self.get_changelog_system_prompt(context_mode=self.context_mode)
+        result = self._chat(context, system_prompt=prompt)
+        return result if result is not None and validate_changelog_output(result) else None
