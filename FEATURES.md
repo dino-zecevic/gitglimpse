@@ -1,6 +1,6 @@
 # gitglimpse Reference
 
-> Version 0.1.7 | Python 3.11+ | MIT License
+> Version  0.1.8 | Python 3.11+ | MIT License
 
 ---
 
