@@ -370,6 +370,38 @@ def get_current_branch_default_target(repo_path: Path | None = None) -> str | No
         if not result.returncode:
             return _clean_source_ref(result.stdout.strip())
 
+    # If that fails, find the HEAD of the remote repository.
+    # Some workflows store the "official" repository as `upstream` rather
+    # than `remote`. If such a remote exists, prefer its upstream `HEAD`
+    # refname instead.
+    remotes = ["upstream", "origin"]
+    # However, also check if the branch has a preferred `remote` configuration
+    # set up. If so, just use that remote.
+    if branch is not None:
+        result = subprocess.run(
+            [git, "config", f"branch.{branch}.remote"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if not result.returncode:
+            remotes = [result.stdout.strip()]
+    # Check if the branch has a preferred remote.
+    for remote in remotes:
+        result = subprocess.run(
+            [git, "ls-remote", "--symref", remote, "HEAD"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if not result.returncode:
+            for line in result.stdout.splitlines():
+                if not line.startswith("ref:"):
+                    continue
+                return _clean_source_ref(line.split()[1])
+
 
 def get_branch_commits(
     repo_path: Path | None = None,

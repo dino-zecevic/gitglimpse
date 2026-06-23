@@ -103,6 +103,10 @@ Generate a pull request summary from the current branch.
 The default for `--base` is determined by searching for the following:
 
 - The `branch.{branch}.merge` setting for the branch name to use
+- The branch name of the `HEAD` symref of:
+  - the `branch.{branch}.remote` remote
+  - the `upstream` remote
+  - the `origin` remote
 - `"main"`
 
 ---
