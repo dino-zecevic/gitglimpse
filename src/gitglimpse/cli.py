@@ -27,6 +27,7 @@ from gitglimpse.git import (
     get_commits,
     get_commits_in_range,
     get_current_branch_name,
+    get_current_branch_default_target,
     get_latest_tag,
 )
 from gitglimpse.grouping import filter_noise_commits, group_commits_into_tasks, is_vague_message
@@ -761,6 +762,9 @@ def pr(
     except GitError as exc:
         console.print(f"[bold red]Error:[/bold red] {exc}")
         raise typer.Exit(1)
+
+    if base is None:
+        base = get_current_branch_default_target(repo_path=repo_path)
 
     if base is None:
         base = "main"

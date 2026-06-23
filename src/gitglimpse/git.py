@@ -353,6 +353,24 @@ def get_current_branch_name(repo_path: Path | None = None) -> str:
     return _get_current_branch_fallback(git, cwd)
 
 
+def get_current_branch_default_target(repo_path: Path | None = None) -> str | None:
+    git = _git_bin()
+    cwd = Path(repo_path) if repo_path is not None else Path.cwd()
+
+    # Try to detect the upstream of the branch.
+    branch = _get_current_branch(git, cwd)
+    if branch is not None:
+        result = subprocess.run(
+            [git, "config", f"branch.{branch}.merge"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if not result.returncode:
+            return _clean_source_ref(result.stdout.strip())
+
+
 def get_branch_commits(
     repo_path: Path | None = None,
     base: str = "main",
