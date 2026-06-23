@@ -715,7 +715,7 @@ def pr(
         base: Annotated[
             str,
             typer.Option("--base", help="Base branch to compare against."),
-        ] = "main",
+        ] = None,
         repo: Annotated[
             Optional[str],
             typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
@@ -761,6 +761,9 @@ def pr(
     except GitError as exc:
         console.print(f"[bold red]Error:[/bold red] {exc}")
         raise typer.Exit(1)
+
+    if base is None:
+        base = "main"
 
     # Get commits on this branch that aren't on base.
     try:
