@@ -89,7 +89,7 @@ Generate a pull request summary from the current branch.
 | `--local-llm` | bool | `false` | Force local LLM (Ollama). |
 | `--local-llm-url` | string | (from config) | Override local LLM base URL. |
 | `--model` | string | (from config) | Override LLM model name. |
-| `--base` | string | `"main"` | Base branch to compare against. |
+| `--base` | string | (see below) | Base branch to compare against. |
 | `--repo` | string | cwd | Path to git repository. |
 | `--context` | string | `"both"` | `commits`, `diffs`, or `both`. Defaults to `both` (overrides config). |
 | `--filter-noise / --no-filter-noise` | bool | (from config) | Toggle noise commit filtering. |
@@ -99,6 +99,15 @@ Generate a pull request summary from the current branch.
 - Uses `git log base..HEAD` to find branch-only commits.
 - Extracts ticket IDs from branch name automatically.
 - Single-repo only (no `--repos` support).
+
+The default for `--base` is determined by searching for the following:
+
+- The `branch.{branch}.merge` setting for the branch name to use
+- The branch name of the `HEAD` symref of:
+  - the `branch.{branch}.remote` remote
+  - the `upstream` remote
+  - the `origin` remote
+- `"main"`
 
 ---
 

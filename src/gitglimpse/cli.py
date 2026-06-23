@@ -27,6 +27,7 @@ from gitglimpse.git import (
     get_commits,
     get_commits_in_range,
     get_current_branch_name,
+    get_current_branch_default_target,
     get_latest_tag,
 )
 from gitglimpse.grouping import filter_noise_commits, group_commits_into_tasks, is_vague_message
@@ -715,7 +716,7 @@ def pr(
         base: Annotated[
             str,
             typer.Option("--base", help="Base branch to compare against."),
-        ] = "main",
+        ] = None,
         repo: Annotated[
             Optional[str],
             typer.Option("--repo", help="Path to git repository. Defaults to current directory."),
@@ -761,6 +762,12 @@ def pr(
     except GitError as exc:
         console.print(f"[bold red]Error:[/bold red] {exc}")
         raise typer.Exit(1)
+
+    if base is None:
+        base = get_current_branch_default_target(repo_path=repo_path)
+
+    if base is None:
+        base = "main"
 
     # Get commits on this branch that aren't on base.
     try:

@@ -210,8 +210,8 @@ def _get_branch_map(git: str, cwd: Path) -> dict[str, str]:
     return result
 
 
-def _get_current_branch(git: str, cwd: Path) -> str:
-    """Return the current branch name, or 'main' as fallback."""
+def _get_current_branch(git: str, cwd: Path) -> str | None:
+    """Return the current branch name."""
     try:
         result = subprocess.run(
             [git, "rev-parse", "--abbrev-ref", "HEAD"],
@@ -222,7 +222,15 @@ def _get_current_branch(git: str, cwd: Path) -> str:
         name = result.stdout.strip()
         return name if name and name != "HEAD" else "main"
     except Exception:
+        pass
+
+
+def _get_current_branch_fallback(git: str, cwd: Path) -> str:
+    """Return the current branch name, or 'main' as fallback."""
+    name = _get_current_branch(git, cwd)
+    if name is None:
         return "main"
+    return name
 
 
 def get_commits(
@@ -291,7 +299,7 @@ def get_commits(
     # some commit in this window actually lacks a branch label.
     needs_branch_map = any(not c.branches for c in commits)
     branch_map = _get_branch_map(git, cwd) if needs_branch_map else {}
-    fallback_branch = _get_current_branch(git, cwd) if needs_branch_map else ""
+    fallback_branch = _get_current_branch_fallback(git, cwd) if needs_branch_map else ""
     enriched: list[Commit] = []
     for c in commits:
         if not c.branches:
@@ -342,7 +350,57 @@ def get_current_branch_name(repo_path: Path | None = None) -> str:
     """Return the current branch name, or 'main' if detached."""
     git = _git_bin()
     cwd = Path(repo_path) if repo_path is not None else Path.cwd()
-    return _get_current_branch(git, cwd)
+    return _get_current_branch_fallback(git, cwd)
+
+
+def get_current_branch_default_target(repo_path: Path | None = None) -> str | None:
+    git = _git_bin()
+    cwd = Path(repo_path) if repo_path is not None else Path.cwd()
+
+    # Try to detect the upstream of the branch.
+    branch = _get_current_branch(git, cwd)
+    if branch is not None:
+        result = subprocess.run(
+            [git, "config", f"branch.{branch}.merge"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if not result.returncode:
+            return _clean_source_ref(result.stdout.strip())
+
+    # If that fails, find the HEAD of the remote repository.
+    # Some workflows store the "official" repository as `upstream` rather
+    # than `remote`. If such a remote exists, prefer its upstream `HEAD`
+    # refname instead.
+    remotes = ["upstream", "origin"]
+    # However, also check if the branch has a preferred `remote` configuration
+    # set up. If so, just use that remote.
+    if branch is not None:
+        result = subprocess.run(
+            [git, "config", f"branch.{branch}.remote"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if not result.returncode:
+            remotes = [result.stdout.strip()]
+    # Check if the branch has a preferred remote.
+    for remote in remotes:
+        result = subprocess.run(
+            [git, "ls-remote", "--symref", remote, "HEAD"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if not result.returncode:
+            for line in result.stdout.splitlines():
+                if not line.startswith("ref:"):
+                    continue
+                return _clean_source_ref(line.split()[1])
 
 
 def get_branch_commits(
